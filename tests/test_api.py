@@ -132,3 +132,25 @@ class ClientTests(IsolatedAsyncioTestCase):
         self.assertEqual(12, len(requests))
         self.assertEqual(12, len({request["data"]["date"] for request in requests}))
         self.assertEqual(12, len(result["monthlyBillDetails"]))
+
+    async def test_cached_months_are_not_downloaded_again(self) -> None:
+        responses = [
+            FakeResponse("ok", "https://aptree.co.kr/home/user/6745/member/login.php"),
+            FakeResponse(analysis_html(), "https://aptree.co.kr/home/user/6745/cac_confirm.php"),
+            *[
+                FakeResponse(monthly_html(300000 + i), "https://aptree.co.kr/home/user/6745/lib/cac.load_content.php")
+                for i in range(12)
+            ],
+            FakeResponse(analysis_html(), "https://aptree.co.kr/home/user/6745/cac_confirm.php"),
+        ]
+        session = FakeSession(responses)
+        client = AptreeApiClient(session, "resident", "secret")
+        first = await client.async_get_bill()
+        second = await client.async_get_bill(first["monthlyBillDetails"])
+        detail_requests = [
+            request
+            for request in session.requests
+            if request["url"].endswith("cac.load_content.php")
+        ]
+        self.assertEqual(12, len(detail_requests))
+        self.assertEqual(12, len(second["monthlyBillDetails"]))

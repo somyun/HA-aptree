@@ -2,15 +2,23 @@
 
 from __future__ import annotations
 
+import hashlib
 from dataclasses import dataclass
+from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
 
 from .api import AptreeApiClient
-from .const import CONF_COMMUNITY_ID, DEFAULT_COMMUNITY_ID
+from .const import (
+    CONF_COMMUNITY_ID,
+    DEFAULT_COMMUNITY_ID,
+    STORAGE_KEY_PREFIX,
+    STORAGE_VERSION,
+)
 from .coordinator import AptreeDataUpdateCoordinator
 
 PLATFORMS = [Platform.SELECT, Platform.SENSOR]
@@ -26,13 +34,17 @@ class AptreeRuntimeData:
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up APTREE from a config entry."""
+    community_id = entry.data.get(CONF_COMMUNITY_ID, DEFAULT_COMMUNITY_ID)
+    cache_scope = hashlib.sha256(
+        f"{community_id}\0{entry.data[CONF_USERNAME].casefold()}".encode()
+    ).hexdigest()
     api = AptreeApiClient(
         async_get_clientsession(hass),
         entry.data[CONF_USERNAME],
         entry.data[CONF_PASSWORD],
-        entry.data.get(CONF_COMMUNITY_ID, DEFAULT_COMMUNITY_ID),
+        community_id,
     )
-    coordinator = AptreeDataUpdateCoordinator(hass, entry, api)
+    coordinator = AptreeDataUpdateCoordinator(hass, entry, api, cache_scope)
     await coordinator.async_config_entry_first_refresh()
 
     entry.runtime_data = AptreeRuntimeData(api=api, coordinator=coordinator)
@@ -44,6 +56,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload an APTREE config entry."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove the persisted private billing archive with the config entry."""
+    store: Store[dict[str, Any]] = Store(
+        hass, STORAGE_VERSION, f"{STORAGE_KEY_PREFIX}.{entry.entry_id}"
+    )
+    await store.async_remove()
 
 
 async def _async_reload_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:

@@ -10,7 +10,10 @@ API_REQUEST_TIMEOUT = 20
 DEFAULT_COMMUNITY_ID = "6745"
 CONF_COMMUNITY_ID = "community_id"
 
-DEFAULT_UPDATE_INTERVAL = timedelta(hours=12)
+DEFAULT_UPDATE_INTERVAL = timedelta(hours=24)
+
+STORAGE_VERSION = 1
+STORAGE_KEY_PREFIX = "aptree.billing_history"
 
 ATTR_BILLING_MONTH = "billing_month"
 ATTR_HISTORY = "history"

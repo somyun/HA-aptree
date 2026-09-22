@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import copy
 import re
 from collections.abc import Mapping
 from typing import Any
@@ -54,8 +55,10 @@ class AptreeApiClient:
         """Validate credentials against the resident website."""
         await self._async_login(force=True)
 
-    async def async_get_bill(self) -> dict[str, Any]:
-        """Return the newest bill, analysis, and rolling monthly details."""
+    async def async_get_bill(
+        self, cached_details: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        """Return billing data, downloading only months absent from the cache."""
         await self._async_login()
         analysis_html = await self._async_request_text("GET", "/cac_confirm.php")
         try:
@@ -69,6 +72,12 @@ class AptreeApiClient:
             months.append(latest_month)
         months = sorted(set(months))[-12:]
 
+        cached_by_month = {
+            self._normalize_billing_month(str(detail.get("billingMonth"))): copy.deepcopy(detail)
+            for detail in cached_details or []
+            if isinstance(detail, Mapping) and detail.get("billingMonth")
+        }
+        missing_months = [month for month in months if month not in cached_by_month]
         semaphore = asyncio.Semaphore(3)
 
         async def _fetch(month: str) -> dict[str, Any]:
@@ -83,7 +92,10 @@ class AptreeApiClient:
                     f"Could not parse the APTREE bill for {month}"
                 ) from err
 
-        details = await asyncio.gather(*(_fetch(month) for month in months))
+        fetched = await asyncio.gather(*(_fetch(month) for month in missing_months))
+        for detail in fetched:
+            cached_by_month[detail["billingMonth"]] = detail
+        details = [cached_by_month[month] for month in sorted(cached_by_month)]
         latest = next(
             (detail for detail in details if detail["billingMonth"] == latest_month),
             details[-1],
@@ -91,12 +103,15 @@ class AptreeApiClient:
 
         # Total history comes from the independently fetched monthly pages;
         # this prevents one latest value being repeated for every month.
+        visible_details = [
+            detail for detail in details if detail["billingMonth"] in set(months)
+        ]
         analysis["yearlyAmountList"] = [
             {
                 "month": detail["billingMonth"],
                 "amount": detail["totalAmount"]["amount"],
             }
-            for detail in details
+            for detail in visible_details
         ]
         latest.update(analysis)
         latest["monthlyBillDetails"] = details
@@ -158,7 +173,7 @@ class AptreeApiClient:
             await self._async_login()
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-            "User-Agent": "HomeAssistant-HA-aptree/0.3.1",
+            "User-Agent": "HomeAssistant-HA-aptree/0.4.0",
             "Referer": f"{self._site_url}/cac.php",
         }
         try:
