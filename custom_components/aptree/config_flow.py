@@ -113,7 +113,7 @@ class AptreeConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reauth_confirm(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Validate replacement credentials and reload the entry."""
+        """Validate replacement credentials and update the entry."""
         entry = self._reauth_entry
         if entry is None:
             return self.async_abort(reason="unknown")
@@ -137,7 +137,6 @@ class AptreeConfigFlow(ConfigFlow, domain=DOMAIN):
                     title=f"APTREE ({username})",
                     unique_id=username.casefold(),
                 )
-                await self.hass.config_entries.async_reload(entry.entry_id)
                 return self.async_abort(reason="reauth_successful")
 
         return self.async_show_form(
