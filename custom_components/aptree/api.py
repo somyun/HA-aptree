@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 from collections.abc import Mapping
 from typing import Any
@@ -17,6 +18,8 @@ from .const import (
     API_BASE_URL,
     API_REQUEST_TIMEOUT,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 
 class AptreeApiError(Exception):
@@ -90,18 +93,39 @@ class AptreeApiClient:
     ) -> list[dict[str, Any]]:
         """Fetch detailed bills for the rolling history with limited concurrency."""
         normalized_latest = self._normalize_billing_month(latest_month)
+        latest_year = int(normalized_latest[:4])
+        latest_month_number = int(normalized_latest[4:6])
         months: list[str] = []
         for item in latest_detail.get("yearlyAmountList", []):
             if not isinstance(item, Mapping):
                 continue
+            raw_month = str(item.get("month", ""))
             try:
-                month = self._normalize_billing_month(str(item.get("month", "")))
+                month = self._normalize_billing_month(raw_month)
             except AptreeResponseError:
-                continue
+                # The production API currently labels rolling-history rows as
+                # "08월" instead of including a year. These rows are older than
+                # latest_month, so infer the year across the year boundary.
+                digits = "".join(
+                    character for character in raw_month if character.isdigit()
+                )
+                if len(digits) != 2 or not 1 <= int(digits) <= 12:
+                    continue
+                history_month_number = int(digits)
+                history_year = (
+                    latest_year
+                    if history_month_number < latest_month_number
+                    else latest_year - 1
+                )
+                month = f"{history_year:04d}{history_month_number:02d}"
             if month not in months:
                 months.append(month)
         if normalized_latest not in months:
             months.append(normalized_latest)
+
+        # Keep the most recent 12 billing months even if the summary response
+        # includes 12 historical rows in addition to the latest bill.
+        months = sorted(months)[-12:]
 
         semaphore = asyncio.Semaphore(3)
 
@@ -113,7 +137,12 @@ class AptreeApiClient:
                     return await self.async_get_bill_detail(month)
             except AptreeAuthenticationError:
                 raise
-            except AptreeApiError:
+            except AptreeApiError as err:
+                _LOGGER.warning(
+                    "Could not fetch APTREE detail for billing month %s (%s)",
+                    month,
+                    type(err).__name__,
+                )
                 return None
 
         details = await asyncio.gather(*(_fetch(month) for month in months))
@@ -271,7 +300,7 @@ class AptreeApiClient:
         """Return headers expected by the resident API."""
         return {
             "Accept": "application/json",
-            "User-Agent": "HomeAssistant-HA-aptree/0.2.1",
+            "User-Agent": "HomeAssistant-HA-aptree/0.2.2",
             "X-App-Platform": API_APP_PLATFORM,
             "X-App-Version": API_APP_VERSION,
             "X-App-Build": API_APP_BUILD,

@@ -138,6 +138,9 @@ def _monthly_details(data: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "water_average_usage": _number(water.get("averageUsage")),
                 "water_average_amount": _whole_krw(water.get("averageAmount")),
                 "food_waste_amount": _whole_krw(trash.get("amount")),
+                "food_waste_average_amount": _whole_krw(
+                    trash.get("averageAmount")
+                ),
             }
         )
     return sorted(records, key=lambda record: record["month"])

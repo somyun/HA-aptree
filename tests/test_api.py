@@ -169,6 +169,62 @@ class AptreeApiClientTests(IsolatedAsyncioTestCase):
         self.assertEqual(2, len(bill["monthlyBillDetails"]))
         self.assertEqual({"billingMonth": "202607"}, session.requests[3]["params"])
 
+    async def test_infers_year_for_korean_history_month_labels(self) -> None:
+        expected_history_months = [
+            "202509",
+            "202510",
+            "202511",
+            "202512",
+            "202601",
+            "202602",
+            "202603",
+            "202604",
+            "202605",
+            "202606",
+            "202607",
+        ]
+        session = FakeSession(
+            [
+                token_response(),
+                FakeResponse(200, {"isSuccess": True, "result": "202608"}),
+                FakeResponse(
+                    200,
+                    {
+                        "isSuccess": True,
+                        "result": {
+                            "targetMonth": "2026-08-01",
+                            "yearlyAmountList": [
+                                {"month": f"{month:02d}월", "amount": 90000}
+                                for month in [8, 9, 10, 11, 12, 1, 2, 3, 4, 5, 6, 7]
+                            ],
+                        },
+                    },
+                ),
+                *[
+                    FakeResponse(
+                        200,
+                        {
+                            "isSuccess": True,
+                            "result": {"targetMonth": f"{month[:4]}-{month[4:]}-01"},
+                        },
+                    )
+                    for month in expected_history_months
+                ],
+            ]
+        )
+        client = AptreeApiClient(session, "resident", "secret")  # type: ignore[arg-type]
+
+        bill = await client.async_get_bill()
+
+        self.assertEqual(12, len(bill["monthlyBillDetails"]))
+        requested_months = {
+            request["params"]["billingMonth"]
+            for request in session.requests
+            if request.get("params")
+        }
+        self.assertEqual({"202608", *expected_history_months}, requested_months)
+        self.assertNotIn("202508", requested_months)
+
     async def test_expired_access_token_uses_refresh_token(self) -> None:
         session = FakeSession(
             [
