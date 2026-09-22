@@ -1,0 +1,13 @@
+{
+  "codeowners": ["@somyun"],
+  "config_flow": true,
+  "documentation": "https://github.com/somyun/HA-aptree",
+  "domain": "aptree",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/somyun/HA-aptree/issues",
+  "name": "APTREE",
+  "requirements": [],
+  "version": "0.1.0"
+}
+

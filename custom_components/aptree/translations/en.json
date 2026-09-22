@@ -1,0 +1,62 @@
+{
+  "title": "APTREE",
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect APTREE",
+        "description": "Enter the resident account used in the APTREE mobile app.",
+        "data": {"username": "APTREE ID", "password": "Password"}
+      },
+      "reauth_confirm": {
+        "title": "Reconnect APTREE",
+        "description": "Your saved credentials were rejected. Enter valid APTREE credentials.",
+        "data": {"username": "APTREE ID", "password": "Password"}
+      }
+    },
+    "error": {
+      "already_configured": "This APTREE account is already configured.",
+      "cannot_connect": "Could not connect to APTREE.",
+      "invalid_auth": "The ID or password is incorrect.",
+      "unknown": "APTREE returned an unexpected response."
+    },
+    "abort": {
+      "already_configured": "This APTREE account is already configured.",
+      "reauth_successful": "APTREE was reconnected successfully.",
+      "unknown": "The configuration entry could not be found."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Change APTREE credentials",
+        "description": "Leave the password empty to keep the current password.",
+        "data": {"username": "APTREE ID", "password": "New password"}
+      }
+    },
+    "error": {
+      "already_configured": "This APTREE account is already configured.",
+      "cannot_connect": "Could not connect to APTREE.",
+      "invalid_auth": "The ID or password is incorrect.",
+      "unknown": "APTREE returned an unexpected response."
+    }
+  },
+  "entity": {
+    "sensor": {
+      "total_amount": {"name": "Total management fee"},
+      "due_date": {"name": "Due date"},
+      "unpaid_amount": {"name": "Unpaid amount"},
+      "overdue_amount": {"name": "Overdue amount"},
+      "same_area_average": {"name": "Same-area average"},
+      "same_area_minimum": {"name": "Same-area minimum"},
+      "same_area_maximum": {"name": "Same-area maximum"},
+      "electricity_usage": {"name": "Electricity usage"},
+      "electricity_amount": {"name": "Electricity charge"},
+      "water_usage": {"name": "Water usage"},
+      "water_amount": {"name": "Water charge"},
+      "trash_amount": {"name": "Waste charge"},
+      "bill_details": {"name": "Bill details"},
+      "yearly_history": {"name": "12-month history"}
+    }
+  }
+}
+
