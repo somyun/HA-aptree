@@ -42,21 +42,20 @@
   },
   "entity": {
     "sensor": {
-      "total_amount": {"name": "총 관리비"},
-      "due_date": {"name": "납부 기한"},
-      "unpaid_amount": {"name": "미납 금액"},
-      "overdue_amount": {"name": "연체 금액"},
-      "same_area_average": {"name": "동일 면적 평균"},
-      "same_area_minimum": {"name": "동일 면적 최저"},
-      "same_area_maximum": {"name": "동일 면적 최고"},
-      "electricity_usage": {"name": "전기 사용량"},
-      "electricity_amount": {"name": "전기 요금"},
-      "water_usage": {"name": "수도 사용량"},
-      "water_amount": {"name": "수도 요금"},
-      "trash_amount": {"name": "폐기물 요금"},
-      "bill_details": {"name": "관리비 상세"},
-      "yearly_history": {"name": "12개월 관리비 추이"}
+      "total_amount": {"name": "1. 금액 · 총 관리비"},
+      "due_date": {"name": "3. 기타 · 납부 기한"},
+      "unpaid_amount": {"name": "1. 금액 · 미납 금액"},
+      "overdue_amount": {"name": "1. 금액 · 연체 금액"},
+      "same_area_average": {"name": "1. 금액 · 동일 면적 평균"},
+      "same_area_minimum": {"name": "1. 금액 · 동일 면적 최저"},
+      "same_area_maximum": {"name": "1. 금액 · 동일 면적 최고"},
+      "electricity_usage": {"name": "2. 사용량 · 전기"},
+      "electricity_amount": {"name": "1. 금액 · 전기 요금"},
+      "water_usage": {"name": "2. 사용량 · 수도"},
+      "water_amount": {"name": "1. 금액 · 수도 요금"},
+      "trash_amount": {"name": "1. 금액 · 폐기물 요금"},
+      "bill_details": {"name": "3. 기타 · 관리비 상세"},
+      "yearly_history": {"name": "1. 금액 · 12개월 관리비 추이"}
     }
   }
 }
-

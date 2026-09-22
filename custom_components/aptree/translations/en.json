@@ -42,21 +42,20 @@
   },
   "entity": {
     "sensor": {
-      "total_amount": {"name": "Total management fee"},
-      "due_date": {"name": "Due date"},
-      "unpaid_amount": {"name": "Unpaid amount"},
-      "overdue_amount": {"name": "Overdue amount"},
-      "same_area_average": {"name": "Same-area average"},
-      "same_area_minimum": {"name": "Same-area minimum"},
-      "same_area_maximum": {"name": "Same-area maximum"},
-      "electricity_usage": {"name": "Electricity usage"},
-      "electricity_amount": {"name": "Electricity charge"},
-      "water_usage": {"name": "Water usage"},
-      "water_amount": {"name": "Water charge"},
-      "trash_amount": {"name": "Waste charge"},
-      "bill_details": {"name": "Bill details"},
-      "yearly_history": {"name": "12-month history"}
+      "total_amount": {"name": "1. Amount · Total management fee"},
+      "due_date": {"name": "3. Other · Due date"},
+      "unpaid_amount": {"name": "1. Amount · Unpaid amount"},
+      "overdue_amount": {"name": "1. Amount · Overdue amount"},
+      "same_area_average": {"name": "1. Amount · Same-area average"},
+      "same_area_minimum": {"name": "1. Amount · Same-area minimum"},
+      "same_area_maximum": {"name": "1. Amount · Same-area maximum"},
+      "electricity_usage": {"name": "2. Usage · Electricity"},
+      "electricity_amount": {"name": "1. Amount · Electricity charge"},
+      "water_usage": {"name": "2. Usage · Water"},
+      "water_amount": {"name": "1. Amount · Water charge"},
+      "trash_amount": {"name": "1. Amount · Waste charge"},
+      "bill_details": {"name": "3. Other · Bill details"},
+      "yearly_history": {"name": "1. Amount · 12-month history"}
     }
   }
 }
-

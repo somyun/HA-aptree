@@ -5,6 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
+from decimal import ROUND_HALF_UP, Decimal, InvalidOperation
 from typing import Any
 
 from homeassistant.components.sensor import (
@@ -36,7 +37,18 @@ def _nested(data: Mapping[str, Any], *path: str) -> Any:
 
 
 def _amount(data: Mapping[str, Any], key: str) -> Any:
-    return _nested(data, key, "amount")
+    return _whole_krw(_nested(data, key, "amount"))
+
+
+def _whole_krw(value: Any) -> int | None:
+    """Normalize Korean won amounts to whole numbers."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        normalized = str(value).replace(",", "")
+        return int(Decimal(normalized).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
 
 
 def _parse_date(value: Any) -> date | None:
@@ -64,6 +76,7 @@ SENSOR_DESCRIPTIONS: tuple[AptreeSensorEntityDescription, ...] = (
         icon="mdi:cash-multiple",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_KRW,
+        suggested_display_precision=0,
         value_fn=lambda data: _amount(data, "totalAmount"),
     ),
     AptreeSensorEntityDescription(
@@ -79,7 +92,8 @@ SENSOR_DESCRIPTIONS: tuple[AptreeSensorEntityDescription, ...] = (
         icon="mdi:cash-alert",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_KRW,
-        value_fn=lambda data: data.get("unpaidAmount"),
+        suggested_display_precision=0,
+        value_fn=lambda data: _whole_krw(data.get("unpaidAmount")),
     ),
     AptreeSensorEntityDescription(
         key="overdue_amount",
@@ -87,7 +101,8 @@ SENSOR_DESCRIPTIONS: tuple[AptreeSensorEntityDescription, ...] = (
         icon="mdi:calendar-alert",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_KRW,
-        value_fn=lambda data: data.get("overdueAmount"),
+        suggested_display_precision=0,
+        value_fn=lambda data: _whole_krw(data.get("overdueAmount")),
     ),
     AptreeSensorEntityDescription(
         key="same_area_average",
@@ -95,7 +110,8 @@ SENSOR_DESCRIPTIONS: tuple[AptreeSensorEntityDescription, ...] = (
         icon="mdi:home-group",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_KRW,
-        value_fn=lambda data: data.get("sameAreaAverage"),
+        suggested_display_precision=0,
+        value_fn=lambda data: _whole_krw(data.get("sameAreaAverage")),
     ),
     AptreeSensorEntityDescription(
         key="same_area_minimum",
@@ -103,7 +119,8 @@ SENSOR_DESCRIPTIONS: tuple[AptreeSensorEntityDescription, ...] = (
         icon="mdi:arrow-down-bold-circle-outline",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_KRW,
-        value_fn=lambda data: data.get("sameAreaMin"),
+        suggested_display_precision=0,
+        value_fn=lambda data: _whole_krw(data.get("sameAreaMin")),
     ),
     AptreeSensorEntityDescription(
         key="same_area_maximum",
@@ -111,7 +128,8 @@ SENSOR_DESCRIPTIONS: tuple[AptreeSensorEntityDescription, ...] = (
         icon="mdi:arrow-up-bold-circle-outline",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_KRW,
-        value_fn=lambda data: data.get("sameAreaMax"),
+        suggested_display_precision=0,
+        value_fn=lambda data: _whole_krw(data.get("sameAreaMax")),
     ),
     AptreeSensorEntityDescription(
         key="electricity_usage",
@@ -126,7 +144,10 @@ SENSOR_DESCRIPTIONS: tuple[AptreeSensorEntityDescription, ...] = (
         icon="mdi:cash",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_KRW,
-        value_fn=lambda data: _nested(data, "electricityComparison", "amount"),
+        suggested_display_precision=0,
+        value_fn=lambda data: _whole_krw(
+            _nested(data, "electricityComparison", "amount")
+        ),
     ),
     AptreeSensorEntityDescription(
         key="water_usage",
@@ -141,7 +162,8 @@ SENSOR_DESCRIPTIONS: tuple[AptreeSensorEntityDescription, ...] = (
         icon="mdi:cash",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_KRW,
-        value_fn=lambda data: _nested(data, "waterComparison", "amount"),
+        suggested_display_precision=0,
+        value_fn=lambda data: _whole_krw(_nested(data, "waterComparison", "amount")),
     ),
     AptreeSensorEntityDescription(
         key="trash_amount",
@@ -149,7 +171,8 @@ SENSOR_DESCRIPTIONS: tuple[AptreeSensorEntityDescription, ...] = (
         icon="mdi:trash-can-outline",
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_KRW,
-        value_fn=lambda data: _nested(data, "trashComparison", "amount"),
+        suggested_display_precision=0,
+        value_fn=lambda data: _whole_krw(_nested(data, "trashComparison", "amount")),
     ),
 )
 
@@ -269,6 +292,7 @@ class AptreeYearlyHistorySensor(AptreeBaseSensor):
     _attr_icon = "mdi:chart-line"
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = CURRENCY_KRW
+    _attr_suggested_display_precision = 0
 
     def __init__(
         self, coordinator: AptreeDataUpdateCoordinator, entry: ConfigEntry
