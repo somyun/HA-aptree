@@ -3,13 +3,12 @@
 from datetime import timedelta
 
 DOMAIN = "aptree"
-PLATFORMS = ["sensor"]
+PLATFORMS = ["select", "sensor"]
 
-API_BASE_URL = "https://user-api.aptree.co.kr"
-API_APP_PLATFORM = "android"
-API_APP_VERSION = "4.3.1"
-API_APP_BUILD = "12242051"
+API_BASE_URL = "https://aptree.co.kr"
 API_REQUEST_TIMEOUT = 20
+DEFAULT_COMMUNITY_ID = "6745"
+CONF_COMMUNITY_ID = "community_id"
 
 DEFAULT_UPDATE_INTERVAL = timedelta(hours=12)
 

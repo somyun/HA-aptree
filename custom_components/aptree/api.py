@@ -1,25 +1,16 @@
-"""Async client for the private APTREE resident API."""
+"""Async client for the APTREE resident website."""
 
 from __future__ import annotations
 
 import asyncio
-import logging
-import time
+import re
 from collections.abc import Mapping
 from typing import Any
-from uuid import uuid4
 
 from aiohttp import ClientError, ClientSession
 
-from .const import (
-    API_APP_BUILD,
-    API_APP_PLATFORM,
-    API_APP_VERSION,
-    API_BASE_URL,
-    API_REQUEST_TIMEOUT,
-)
-
-_LOGGER = logging.getLogger(__name__)
+from .const import API_BASE_URL, API_REQUEST_TIMEOUT, DEFAULT_COMMUNITY_ID
+from .html_parser import parse_analysis_page, parse_monthly_bill
 
 
 class AptreeApiError(Exception):
@@ -39,292 +30,171 @@ class AptreeResponseError(AptreeApiError):
 
 
 class AptreeApiClient:
-    """Client for APTREE's resident-facing JSON API."""
+    """Client for the logged-in APTREE resident website."""
 
-    def __init__(self, session: ClientSession, username: str, password: str) -> None:
-        """Initialize the client."""
+    def __init__(
+        self,
+        session: ClientSession,
+        username: str,
+        password: str,
+        community_id: str = DEFAULT_COMMUNITY_ID,
+    ) -> None:
         self._session = session
         self._username = username
         self._password = password
-        self._client_id = str(uuid4())
-        self._access_token: str | None = None
-        self._refresh_token: str | None = None
-        self._access_token_expires_at = 0.0
-        self._refresh_token_expires_at = 0.0
-        self._token_type = "Bearer"
+        self._community_id = self._normalize_community_id(community_id)
+        self._authenticated = False
         self._auth_lock = asyncio.Lock()
 
+    @property
+    def _site_url(self) -> str:
+        return f"{API_BASE_URL}/home/user/{self._community_id}"
+
     async def async_validate_credentials(self) -> None:
-        """Validate credentials without fetching private billing data."""
-        await self._async_login()
+        """Validate credentials against the resident website."""
+        await self._async_login(force=True)
 
     async def async_get_bill(self) -> dict[str, Any]:
-        """Return the newest bill and available monthly bill details."""
-        latest_month = await self._async_request(
-            "GET", "/user/bill/latest-month", authenticated=True
-        )
-        if not isinstance(latest_month, str) or not latest_month.strip():
-            raise AptreeResponseError("The latest billing month was not a string")
+        """Return the newest bill, analysis, and rolling monthly details."""
+        await self._async_login()
+        analysis_html = await self._async_request_text("GET", "/cac_confirm.php")
+        try:
+            analysis = parse_analysis_page(analysis_html)
+        except ValueError as err:
+            raise AptreeResponseError("Could not parse the APTREE analysis page") from err
 
-        result = await self.async_get_bill_detail(latest_month)
-        result["monthlyBillDetails"] = await self._async_get_monthly_bill_details(
-            result, latest_month
-        )
-        return result
-
-    async def async_get_bill_detail(self, billing_month: str) -> dict[str, Any]:
-        """Return one month of detailed billing data."""
-        normalized_month = self._normalize_billing_month(billing_month)
-        detail = await self._async_request(
-            "GET",
-            "/user/bill/detail",
-            authenticated=True,
-            params={"billingMonth": normalized_month},
-        )
-        if not isinstance(detail, Mapping):
-            raise AptreeResponseError("The bill detail was not an object")
-
-        result = dict(detail)
-        result.setdefault("billingMonth", normalized_month)
-        return result
-
-    async def _async_get_monthly_bill_details(
-        self, latest_detail: Mapping[str, Any], latest_month: str
-    ) -> list[dict[str, Any]]:
-        """Fetch detailed bills for the rolling history with limited concurrency."""
-        normalized_latest = self._normalize_billing_month(latest_month)
-        latest_year = int(normalized_latest[:4])
-        latest_month_number = int(normalized_latest[4:6])
-        months: list[str] = []
-        for item in latest_detail.get("yearlyAmountList", []):
-            if not isinstance(item, Mapping):
-                continue
-            raw_month = str(item.get("month", ""))
-            try:
-                month = self._normalize_billing_month(raw_month)
-            except AptreeResponseError:
-                # The production API currently labels rolling-history rows as
-                # "08월" instead of including a year. These rows are older than
-                # latest_month, so infer the year across the year boundary.
-                digits = "".join(
-                    character for character in raw_month if character.isdigit()
-                )
-                if len(digits) != 2 or not 1 <= int(digits) <= 12:
-                    continue
-                history_month_number = int(digits)
-                history_year = (
-                    latest_year
-                    if history_month_number < latest_month_number
-                    else latest_year - 1
-                )
-                month = f"{history_year:04d}{history_month_number:02d}"
-            if month not in months:
-                months.append(month)
-        if normalized_latest not in months:
-            months.append(normalized_latest)
-
-        # Keep the most recent 12 billing months even if the summary response
-        # includes 12 historical rows in addition to the latest bill.
-        months = sorted(months)[-12:]
+        latest_month = analysis["billingMonth"]
+        months = [item["month"] for item in analysis["yearlyAmountList"]][-12:]
+        if latest_month not in months:
+            months.append(latest_month)
+        months = sorted(set(months))[-12:]
 
         semaphore = asyncio.Semaphore(3)
 
-        async def _fetch(month: str) -> dict[str, Any] | None:
-            if month == normalized_latest:
-                return dict(latest_detail)
-            try:
-                async with semaphore:
-                    return await self.async_get_bill_detail(month)
-            except AptreeAuthenticationError:
-                raise
-            except AptreeApiError as err:
-                _LOGGER.warning(
-                    "Could not fetch APTREE detail for billing month %s (%s)",
-                    month,
-                    type(err).__name__,
+        async def _fetch(month: str) -> dict[str, Any]:
+            async with semaphore:
+                html = await self._async_request_text(
+                    "POST", "/lib/cac.load_content.php", data={"date": month}
                 )
-                return None
+            try:
+                return parse_monthly_bill(html, month)
+            except ValueError as err:
+                raise AptreeResponseError(
+                    f"Could not parse the APTREE bill for {month}"
+                ) from err
 
         details = await asyncio.gather(*(_fetch(month) for month in months))
-        return [detail for detail in details if detail is not None]
+        latest = next(
+            (detail for detail in details if detail["billingMonth"] == latest_month),
+            details[-1],
+        )
 
-    @staticmethod
-    def _normalize_billing_month(value: str) -> str:
-        """Convert YYYYMM and date-like month values to the API's YYYYMM form."""
-        digits = "".join(character for character in value if character.isdigit())
-        if len(digits) < 6:
-            raise AptreeResponseError("The billing month was invalid")
-        month = digits[:6]
-        if not 1 <= int(month[4:6]) <= 12:
-            raise AptreeResponseError("The billing month was invalid")
-        return month
+        # Total history comes from the independently fetched monthly pages;
+        # this prevents one latest value being repeated for every month.
+        analysis["yearlyAmountList"] = [
+            {
+                "month": detail["billingMonth"],
+                "amount": detail["totalAmount"]["amount"],
+            }
+            for detail in details
+        ]
+        latest.update(analysis)
+        latest["monthlyBillDetails"] = details
 
-    async def _async_authenticate(self, *, force: bool = False) -> None:
-        """Ensure that a usable access token is available."""
-        if not force and self._token_is_valid(
-            self._access_token, self._access_token_expires_at
-        ):
+        # The website publishes same-area comparisons for the newest month
+        # only. Attach the exact values there without fabricating old averages.
+        for detail in details:
+            if detail["billingMonth"] != latest_month:
+                continue
+            for key in ("electricityComparison", "waterComparison"):
+                detail.setdefault(key, {}).update(analysis.get(key, {}))
+        return latest
+
+    async def async_get_bill_detail(self, billing_month: str) -> dict[str, Any]:
+        """Return one month of detailed web billing data."""
+        month = self._normalize_billing_month(billing_month)
+        await self._async_login()
+        html = await self._async_request_text(
+            "POST", "/lib/cac.load_content.php", data={"date": month}
+        )
+        try:
+            return parse_monthly_bill(html, month)
+        except ValueError as err:
+            raise AptreeResponseError(f"Could not parse the APTREE bill for {month}") from err
+
+    async def _async_login(self, *, force: bool = False) -> None:
+        if self._authenticated and not force:
             return
-
         async with self._auth_lock:
-            if not force and self._token_is_valid(
-                self._access_token, self._access_token_expires_at
-            ):
+            if self._authenticated and not force:
                 return
+            response = await self._async_request_text(
+                "POST",
+                "/member/login.php",
+                authenticated=False,
+                data={
+                    "login_id": self._username,
+                    "login_pw": self._password,
+                    "login_id_save": "",
+                    "login_auto": "",
+                    "width": "1920",
+                    "height": "1080",
+                },
+            )
+            if response.strip().lower() != "ok":
+                raise AptreeAuthenticationError("APTREE rejected the credentials")
+            self._authenticated = True
 
-            if self._token_is_valid(
-                self._refresh_token, self._refresh_token_expires_at
-            ):
-                try:
-                    await self._async_refresh_access_token()
-                    return
-                except AptreeAuthenticationError:
-                    self._clear_tokens()
-
-            await self._async_login()
-
-    async def _async_login(self) -> None:
-        """Sign in with the configured resident credentials."""
-        result = await self._async_request(
-            "POST",
-            "/auth/signin",
-            authenticated=False,
-            json_body={"userId": self._username, "password": self._password},
-        )
-        self._apply_tokens(result)
-
-    async def _async_refresh_access_token(self) -> None:
-        """Refresh the access token."""
-        if not self._refresh_token:
-            raise AptreeAuthenticationError("No refresh token is available")
-        result = await self._async_request(
-            "POST",
-            "/auth/refresh",
-            authenticated=False,
-            json_body={"refreshToken": self._refresh_token},
-        )
-        self._apply_tokens(result)
-
-    async def _async_request(
+    async def _async_request_text(
         self,
         method: str,
         path: str,
         *,
-        authenticated: bool,
-        params: Mapping[str, str] | None = None,
-        json_body: Mapping[str, Any] | None = None,
-        allow_retry: bool = True,
-    ) -> Any:
-        """Perform one API request and unwrap APTREE's response envelope."""
+        authenticated: bool = True,
+        data: Mapping[str, str] | None = None,
+        retry: bool = True,
+    ) -> str:
         if authenticated:
-            await self._async_authenticate()
-
-        headers = self._base_headers()
-        if authenticated and self._access_token:
-            headers["Authorization"] = f"{self._token_type} {self._access_token}"
-
+            await self._async_login()
+        headers = {
+            "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
+            "User-Agent": "HomeAssistant-HA-aptree/0.3.0",
+            "Referer": f"{self._site_url}/cac.php",
+        }
         try:
             async with asyncio.timeout(API_REQUEST_TIMEOUT):
                 async with self._session.request(
                     method,
-                    f"{API_BASE_URL}{path}",
+                    f"{self._site_url}{path}",
                     headers=headers,
-                    params=params,
-                    json=json_body,
+                    data=data,
                 ) as response:
                     status = response.status
-                    try:
-                        payload = await response.json(content_type=None)
-                    except (ValueError, TypeError) as err:
-                        raise AptreeResponseError(
-                            f"APTREE returned a non-JSON response (HTTP {status})"
-                        ) from err
+                    text = await response.text(errors="replace")
+                    final_url = str(response.url)
         except (TimeoutError, ClientError) as err:
             raise AptreeConnectionError("Could not connect to APTREE") from err
 
-        if status == 401:
-            if authenticated and allow_retry:
-                await self._async_authenticate(force=True)
-                return await self._async_request(
-                    method,
-                    path,
-                    authenticated=True,
-                    params=params,
-                    json_body=json_body,
-                    allow_retry=False,
-                )
-            raise AptreeAuthenticationError("APTREE rejected the credentials or token")
-
-        if not isinstance(payload, Mapping):
-            raise AptreeResponseError(f"Unexpected response type (HTTP {status})")
-
-        message = payload.get("message")
-        if status >= 400 or payload.get("isSuccess") is False:
-            if path.startswith("/auth/"):
-                raise AptreeAuthenticationError(str(message or "Authentication failed"))
-            raise AptreeResponseError(
-                f"APTREE request failed (HTTP {status}): {message or 'unknown error'}"
-            )
-
-        if "result" not in payload:
-            raise AptreeResponseError("APTREE response did not include a result")
-        return payload["result"]
-
-    def _apply_tokens(self, result: Any) -> None:
-        """Apply a sign-in or refresh response without logging token values."""
-        if not isinstance(result, Mapping):
-            raise AptreeResponseError("The token response was not an object")
-
-        access_token = result.get("accessToken") or result.get("access_token")
-        refresh_token = result.get("refreshToken") or result.get("refresh_token")
-        if not isinstance(access_token, str) or not access_token:
-            raise AptreeResponseError(
-                "The token response did not include an access token"
-            )
-
-        self._access_token = access_token
-        if isinstance(refresh_token, str) and refresh_token:
-            self._refresh_token = refresh_token
-        self._access_token_expires_at = self._normalize_timestamp(
-            result.get("accessTokenExpiresAt") or result.get("access_token_expires_at")
-        )
-        self._refresh_token_expires_at = self._normalize_timestamp(
-            result.get("refreshTokenExpiresAt")
-            or result.get("refresh_token_expires_at")
-        )
-        token_type = result.get("tokenType") or result.get("token_type")
-        if isinstance(token_type, str) and token_type.strip():
-            self._token_type = token_type.strip()
-
-    def _base_headers(self) -> dict[str, str]:
-        """Return headers expected by the resident API."""
-        return {
-            "Accept": "application/json",
-            "User-Agent": "HomeAssistant-HA-aptree/0.2.2",
-            "X-App-Platform": API_APP_PLATFORM,
-            "X-App-Version": API_APP_VERSION,
-            "X-App-Build": API_APP_BUILD,
-            "X-Client-Id": self._client_id,
-        }
+        if status in (401, 403) or ("/member/login" in final_url and authenticated):
+            self._authenticated = False
+            if authenticated and retry:
+                await self._async_login(force=True)
+                return await self._async_request_text(method, path, data=data, retry=False)
+            raise AptreeAuthenticationError("APTREE login session expired")
+        if status >= 400:
+            raise AptreeResponseError(f"APTREE website returned HTTP {status}")
+        return text
 
     @staticmethod
-    def _normalize_timestamp(value: Any) -> float:
-        """Normalize second or millisecond epoch timestamps."""
-        if not isinstance(value, (int, float)):
-            return 0.0
-        timestamp = float(value)
-        if timestamp > 10_000_000_000:
-            timestamp /= 1000
-        return timestamp
+    def _normalize_community_id(value: str) -> str:
+        match = re.fullmatch(r"\d+", str(value).strip())
+        if not match:
+            raise AptreeResponseError("The APTREE community number was invalid")
+        return match.group(0)
 
     @staticmethod
-    def _token_is_valid(token: str | None, expires_at: float) -> bool:
-        """Return whether a token is present and not close to expiry."""
-        return bool(token) and expires_at > time.time() + 60
-
-    def _clear_tokens(self) -> None:
-        """Forget runtime tokens."""
-        self._access_token = None
-        self._refresh_token = None
-        self._access_token_expires_at = 0.0
-        self._refresh_token_expires_at = 0.0
+    def _normalize_billing_month(value: str) -> str:
+        digits = "".join(character for character in str(value) if character.isdigit())
+        if len(digits) < 6 or not 1 <= int(digits[4:6]) <= 12:
+            raise AptreeResponseError("The billing month was invalid")
+        return digits[:6]

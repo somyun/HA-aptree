@@ -26,13 +26,14 @@ from .api import (
     AptreeAuthenticationError,
     AptreeConnectionError,
 )
-from .const import DOMAIN
+from .const import CONF_COMMUNITY_ID, DEFAULT_COMMUNITY_ID, DOMAIN
 
 
 def _credentials_schema(
     username: str | None = None,
     *,
     password_required: bool = True,
+    community_id: str = DEFAULT_COMMUNITY_ID,
 ) -> vol.Schema:
     """Build a browser-autofill-friendly credential schema."""
     username_key = vol.Required(CONF_USERNAME, default=username or "")
@@ -44,6 +45,9 @@ def _credentials_schema(
 
     return vol.Schema(
         {
+            vol.Required(CONF_COMMUNITY_ID, default=community_id): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.TEXT)
+            ),
             username_key: TextSelector(
                 TextSelectorConfig(
                     type=TextSelectorType.TEXT,
@@ -61,10 +65,12 @@ def _credentials_schema(
 
 
 async def _async_validate_credentials(
-    hass: HomeAssistant, username: str, password: str
+    hass: HomeAssistant, username: str, password: str, community_id: str
 ) -> None:
     """Validate credentials against the sign-in endpoint."""
-    api = AptreeApiClient(async_get_clientsession(hass), username, password)
+    api = AptreeApiClient(
+        async_get_clientsession(hass), username, password, community_id
+    )
     await api.async_validate_credentials()
 
 
@@ -81,8 +87,11 @@ class AptreeConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             username = user_input[CONF_USERNAME].strip()
             password = user_input[CONF_PASSWORD]
+            community_id = user_input[CONF_COMMUNITY_ID].strip()
             try:
-                await _async_validate_credentials(self.hass, username, password)
+                await _async_validate_credentials(
+                    self.hass, username, password, community_id
+                )
             except AptreeAuthenticationError:
                 errors["base"] = "invalid_auth"
             except AptreeConnectionError:
@@ -94,7 +103,11 @@ class AptreeConfigFlow(ConfigFlow, domain=DOMAIN):
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
                     title=f"APTREE ({username})",
-                    data={CONF_USERNAME: username, CONF_PASSWORD: password},
+                    data={
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_COMMUNITY_ID: community_id,
+                    },
                 )
 
         return self.async_show_form(
@@ -122,8 +135,11 @@ class AptreeConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             username = user_input[CONF_USERNAME].strip()
             password = user_input[CONF_PASSWORD]
+            community_id = user_input[CONF_COMMUNITY_ID].strip()
             try:
-                await _async_validate_credentials(self.hass, username, password)
+                await _async_validate_credentials(
+                    self.hass, username, password, community_id
+                )
             except AptreeAuthenticationError:
                 errors["base"] = "invalid_auth"
             except AptreeConnectionError:
@@ -133,7 +149,11 @@ class AptreeConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 self.hass.config_entries.async_update_entry(
                     entry,
-                    data={CONF_USERNAME: username, CONF_PASSWORD: password},
+                    data={
+                        CONF_USERNAME: username,
+                        CONF_PASSWORD: password,
+                        CONF_COMMUNITY_ID: community_id,
+                    },
                     title=f"APTREE ({username})",
                     unique_id=username.casefold(),
                 )
@@ -141,7 +161,10 @@ class AptreeConfigFlow(ConfigFlow, domain=DOMAIN):
 
         return self.async_show_form(
             step_id="reauth_confirm",
-            data_schema=_credentials_schema(entry.data[CONF_USERNAME]),
+            data_schema=_credentials_schema(
+                entry.data[CONF_USERNAME],
+                community_id=entry.data.get(CONF_COMMUNITY_ID, DEFAULT_COMMUNITY_ID),
+            ),
             errors=errors,
         )
 
@@ -167,6 +190,7 @@ class AptreeOptionsFlow(OptionsFlow):
         if user_input is not None:
             username = user_input[CONF_USERNAME].strip()
             password = user_input.get(CONF_PASSWORD) or self._entry.data[CONF_PASSWORD]
+            community_id = user_input[CONF_COMMUNITY_ID].strip()
 
             duplicate = any(
                 entry.entry_id != self._entry.entry_id
@@ -177,7 +201,9 @@ class AptreeOptionsFlow(OptionsFlow):
                 errors["base"] = "already_configured"
             else:
                 try:
-                    await _async_validate_credentials(self.hass, username, password)
+                    await _async_validate_credentials(
+                        self.hass, username, password, community_id
+                    )
                 except AptreeAuthenticationError:
                     errors["base"] = "invalid_auth"
                 except AptreeConnectionError:
@@ -187,7 +213,11 @@ class AptreeOptionsFlow(OptionsFlow):
                 else:
                     self.hass.config_entries.async_update_entry(
                         self._entry,
-                        data={CONF_USERNAME: username, CONF_PASSWORD: password},
+                        data={
+                            CONF_USERNAME: username,
+                            CONF_PASSWORD: password,
+                            CONF_COMMUNITY_ID: community_id,
+                        },
                         title=f"APTREE ({username})",
                         unique_id=username.casefold(),
                     )
@@ -196,7 +226,11 @@ class AptreeOptionsFlow(OptionsFlow):
         return self.async_show_form(
             step_id="init",
             data_schema=_credentials_schema(
-                self._entry.data[CONF_USERNAME], password_required=False
+                self._entry.data[CONF_USERNAME],
+                password_required=False,
+                community_id=self._entry.data.get(
+                    CONF_COMMUNITY_ID, DEFAULT_COMMUNITY_ID
+                ),
             ),
             errors=errors,
         )

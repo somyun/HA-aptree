@@ -4,13 +4,13 @@
     "step": {
       "user": {
         "title": "Connect APTREE",
-        "description": "Enter the resident account used in the APTREE mobile app.",
-        "data": {"username": "APTREE ID", "password": "Password"}
+        "description": "Enter the resident account used on the APTREE website. The community number is the number in /home/user/6745/ of your APTREE URL.",
+        "data": {"community_id": "Community number", "username": "APTREE ID", "password": "Password"}
       },
       "reauth_confirm": {
         "title": "Reconnect APTREE",
         "description": "Your saved credentials were rejected. Enter valid APTREE credentials.",
-        "data": {"username": "APTREE ID", "password": "Password"}
+        "data": {"community_id": "Community number", "username": "APTREE ID", "password": "Password"}
       }
     },
     "error": {
@@ -30,7 +30,7 @@
       "init": {
         "title": "Change APTREE credentials",
         "description": "Leave the password empty to keep the current password.",
-        "data": {"username": "APTREE ID", "password": "New password"}
+        "data": {"community_id": "Community number", "username": "APTREE ID", "password": "New password"}
       }
     },
     "error": {
@@ -41,6 +41,9 @@
     }
   },
   "entity": {
+    "select": {
+      "billing_month": {"name": "Billing month"}
+    },
     "sensor": {
       "total_amount": {"name": "1. Amount · Total management fee"},
       "due_date": {"name": "3. Other · Due date"},

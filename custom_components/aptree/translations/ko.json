@@ -4,13 +4,13 @@
     "step": {
       "user": {
         "title": "아파트리 연결",
-        "description": "아파트리 앱에서 사용하는 입주민 계정을 입력하세요.",
-        "data": {"username": "아파트리 아이디", "password": "비밀번호"}
+        "description": "아파트리 웹사이트의 입주민 계정을 입력하세요. 단지 번호는 주소의 /home/user/6745/에서 6745 부분입니다.",
+        "data": {"community_id": "단지 번호", "username": "아파트리 아이디", "password": "비밀번호"}
       },
       "reauth_confirm": {
         "title": "아파트리 다시 연결",
         "description": "저장된 계정 정보가 거부되었습니다. 올바른 계정 정보를 입력하세요.",
-        "data": {"username": "아파트리 아이디", "password": "비밀번호"}
+        "data": {"community_id": "단지 번호", "username": "아파트리 아이디", "password": "비밀번호"}
       }
     },
     "error": {
@@ -30,7 +30,7 @@
       "init": {
         "title": "아파트리 계정 정보 변경",
         "description": "기존 비밀번호를 계속 사용하려면 비밀번호를 비워 두세요.",
-        "data": {"username": "아파트리 아이디", "password": "새 비밀번호"}
+        "data": {"community_id": "단지 번호", "username": "아파트리 아이디", "password": "새 비밀번호"}
       }
     },
     "error": {
@@ -41,6 +41,9 @@
     }
   },
   "entity": {
+    "select": {
+      "billing_month": {"name": "관리비 조회 월"}
+    },
     "sensor": {
       "total_amount": {"name": "1. 금액 · 총 관리비"},
       "due_date": {"name": "3. 기타 · 납부 기한"},
