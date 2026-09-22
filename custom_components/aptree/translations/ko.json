@@ -51,9 +51,13 @@
       "same_area_maximum": {"name": "1. 금액 · 동일 면적 최고"},
       "electricity_usage": {"name": "2. 사용량 · 전기"},
       "electricity_amount": {"name": "1. 금액 · 전기 요금"},
+      "electricity_average_usage": {"name": "2. 사용량 · 전기 동종 평균"},
+      "electricity_average_amount": {"name": "1. 금액 · 전기 동종 평균 요금"},
       "water_usage": {"name": "2. 사용량 · 수도"},
       "water_amount": {"name": "1. 금액 · 수도 요금"},
-      "trash_amount": {"name": "1. 금액 · 폐기물 요금"},
+      "water_average_usage": {"name": "2. 사용량 · 수도 동종 평균"},
+      "water_average_amount": {"name": "1. 금액 · 수도 동종 평균 요금"},
+      "trash_amount": {"name": "1. 금액 · 음식물쓰레기 요금"},
       "bill_details": {"name": "3. 기타 · 관리비 상세"},
       "yearly_history": {"name": "1. 금액 · 12개월 관리비 추이"}
     }

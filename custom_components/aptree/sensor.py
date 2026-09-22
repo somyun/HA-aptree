@@ -21,7 +21,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import AptreeRuntimeData
-from .const import ATTR_BILLING_MONTH, ATTR_HISTORY, DOMAIN
+from .const import ATTR_BILLING_MONTH, ATTR_HISTORY, ATTR_MONTHLY_DETAILS, DOMAIN
 from .coordinator import AptreeDataUpdateCoordinator
 
 CURRENCY_KRW = "KRW"
@@ -49,6 +49,94 @@ def _whole_krw(value: Any) -> int | None:
         return int(Decimal(normalized).quantize(Decimal("1"), rounding=ROUND_HALF_UP))
     except (InvalidOperation, TypeError, ValueError):
         return None
+
+
+def _number(value: Any) -> int | float | None:
+    """Return an API value as a finite-looking number."""
+    if value is None or isinstance(value, bool):
+        return None
+    try:
+        number = Decimal(str(value).replace(",", ""))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if not number.is_finite():
+        return None
+    return int(number) if number == number.to_integral_value() else float(number)
+
+
+def _month_start(value: Any) -> str | None:
+    """Normalize a month value for chart timestamps."""
+    digits = "".join(character for character in str(value) if character.isdigit())
+    if len(digits) < 6 or not 1 <= int(digits[4:6]) <= 12:
+        return None
+    return f"{digits[:4]}-{digits[4:6]}-01"
+
+
+def _category_title(list_key: str, value: Any) -> str | None:
+    """Normalize variable APTREE fee labels into stable chart series names."""
+    if not isinstance(value, str) or not (title := value.strip()):
+        return None
+    if title == "소계":
+        return None
+    if list_key == "electricityList" and title.startswith("세대 ("):
+        return "세대 전기요금"
+    if list_key == "waterList" and title.startswith("세대 ("):
+        return "세대 수도요금"
+    if title == "생활폐기물수수":
+        return "음식물쓰레기 수수료"
+    return title
+
+
+def _monthly_details(data: Mapping[str, Any]) -> list[dict[str, Any]]:
+    """Build compact chart-ready records from monthly detailed bills."""
+    records: list[dict[str, Any]] = []
+    for detail in data.get("monthlyBillDetails", []):
+        if not isinstance(detail, Mapping):
+            continue
+        month = _month_start(detail.get("targetMonth") or detail.get("billingMonth"))
+        if month is None:
+            continue
+
+        categories: dict[str, int] = {}
+        for list_key in ("discountList", "electricityList", "waterList", "etcList"):
+            for item in detail.get(list_key, []):
+                if not isinstance(item, Mapping):
+                    continue
+                title = _category_title(list_key, item.get("title"))
+                amount = _whole_krw(item.get("amount"))
+                if title is None or amount is None:
+                    continue
+                categories[title] = categories.get(title, 0) + amount
+
+        electricity = detail.get("electricityComparison")
+        if not isinstance(electricity, Mapping):
+            electricity = {}
+        water = detail.get("waterComparison")
+        if not isinstance(water, Mapping):
+            water = {}
+        trash = detail.get("trashComparison")
+        if not isinstance(trash, Mapping):
+            trash = {}
+
+        records.append(
+            {
+                "month": month,
+                "total": _amount(detail, "totalAmount"),
+                "categories": categories,
+                "electricity_usage": _number(electricity.get("usage")),
+                "electricity_amount": _whole_krw(electricity.get("amount")),
+                "electricity_average_usage": _number(electricity.get("averageUsage")),
+                "electricity_average_amount": _whole_krw(
+                    electricity.get("averageAmount")
+                ),
+                "water_usage": _number(water.get("usage")),
+                "water_amount": _whole_krw(water.get("amount")),
+                "water_average_usage": _number(water.get("averageUsage")),
+                "water_average_amount": _whole_krw(water.get("averageAmount")),
+                "food_waste_amount": _whole_krw(trash.get("amount")),
+            }
+        )
+    return sorted(records, key=lambda record: record["month"])
 
 
 def _parse_date(value: Any) -> date | None:
@@ -150,6 +238,24 @@ SENSOR_DESCRIPTIONS: tuple[AptreeSensorEntityDescription, ...] = (
         ),
     ),
     AptreeSensorEntityDescription(
+        key="electricity_average_usage",
+        translation_key="electricity_average_usage",
+        icon="mdi:home-group",
+        native_unit_of_measurement=UnitOfEnergy.KILO_WATT_HOUR,
+        value_fn=lambda data: _nested(data, "electricityComparison", "averageUsage"),
+    ),
+    AptreeSensorEntityDescription(
+        key="electricity_average_amount",
+        translation_key="electricity_average_amount",
+        icon="mdi:home-group",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement=CURRENCY_KRW,
+        suggested_display_precision=0,
+        value_fn=lambda data: _whole_krw(
+            _nested(data, "electricityComparison", "averageAmount")
+        ),
+    ),
+    AptreeSensorEntityDescription(
         key="water_usage",
         translation_key="water_usage",
         icon="mdi:water",
@@ -164,6 +270,24 @@ SENSOR_DESCRIPTIONS: tuple[AptreeSensorEntityDescription, ...] = (
         native_unit_of_measurement=CURRENCY_KRW,
         suggested_display_precision=0,
         value_fn=lambda data: _whole_krw(_nested(data, "waterComparison", "amount")),
+    ),
+    AptreeSensorEntityDescription(
+        key="water_average_usage",
+        translation_key="water_average_usage",
+        icon="mdi:home-group",
+        native_unit_of_measurement=UnitOfVolume.CUBIC_METERS,
+        value_fn=lambda data: _nested(data, "waterComparison", "averageUsage"),
+    ),
+    AptreeSensorEntityDescription(
+        key="water_average_amount",
+        translation_key="water_average_amount",
+        icon="mdi:home-group",
+        device_class=SensorDeviceClass.MONETARY,
+        native_unit_of_measurement=CURRENCY_KRW,
+        suggested_display_precision=0,
+        value_fn=lambda data: _whole_krw(
+            _nested(data, "waterComparison", "averageAmount")
+        ),
     ),
     AptreeSensorEntityDescription(
         key="trash_amount",
@@ -310,4 +434,5 @@ class AptreeYearlyHistorySensor(AptreeBaseSensor):
         """Return the 12-month series."""
         attributes = super().extra_state_attributes
         attributes[ATTR_HISTORY] = self.coordinator.data.get("yearlyAmountList", [])
+        attributes[ATTR_MONTHLY_DETAILS] = _monthly_details(self.coordinator.data)
         return attributes

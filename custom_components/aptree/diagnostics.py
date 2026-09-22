@@ -29,5 +29,6 @@ async def async_get_config_entry_diagnostics(
             "water_item_count": len(data.get("waterList", [])),
             "other_item_count": len(data.get("etcList", [])),
             "history_item_count": len(data.get("yearlyAmountList", [])),
+            "monthly_detail_count": len(data.get("monthlyBillDetails", [])),
         },
     }

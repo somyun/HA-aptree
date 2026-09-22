@@ -56,25 +56,79 @@ class AptreeApiClient:
         await self._async_login()
 
     async def async_get_bill(self) -> dict[str, Any]:
-        """Return the newest billing month and its detailed bill."""
+        """Return the newest bill and available monthly bill details."""
         latest_month = await self._async_request(
             "GET", "/user/bill/latest-month", authenticated=True
         )
         if not isinstance(latest_month, str) or not latest_month.strip():
             raise AptreeResponseError("The latest billing month was not a string")
 
+        result = await self.async_get_bill_detail(latest_month)
+        result["monthlyBillDetails"] = await self._async_get_monthly_bill_details(
+            result, latest_month
+        )
+        return result
+
+    async def async_get_bill_detail(self, billing_month: str) -> dict[str, Any]:
+        """Return one month of detailed billing data."""
+        normalized_month = self._normalize_billing_month(billing_month)
         detail = await self._async_request(
             "GET",
             "/user/bill/detail",
             authenticated=True,
-            params={"billingMonth": latest_month.strip()},
+            params={"billingMonth": normalized_month},
         )
         if not isinstance(detail, Mapping):
             raise AptreeResponseError("The bill detail was not an object")
 
         result = dict(detail)
-        result.setdefault("billingMonth", latest_month.strip())
+        result.setdefault("billingMonth", normalized_month)
         return result
+
+    async def _async_get_monthly_bill_details(
+        self, latest_detail: Mapping[str, Any], latest_month: str
+    ) -> list[dict[str, Any]]:
+        """Fetch detailed bills for the rolling history with limited concurrency."""
+        normalized_latest = self._normalize_billing_month(latest_month)
+        months: list[str] = []
+        for item in latest_detail.get("yearlyAmountList", []):
+            if not isinstance(item, Mapping):
+                continue
+            try:
+                month = self._normalize_billing_month(str(item.get("month", "")))
+            except AptreeResponseError:
+                continue
+            if month not in months:
+                months.append(month)
+        if normalized_latest not in months:
+            months.append(normalized_latest)
+
+        semaphore = asyncio.Semaphore(3)
+
+        async def _fetch(month: str) -> dict[str, Any] | None:
+            if month == normalized_latest:
+                return dict(latest_detail)
+            try:
+                async with semaphore:
+                    return await self.async_get_bill_detail(month)
+            except AptreeAuthenticationError:
+                raise
+            except AptreeApiError:
+                return None
+
+        details = await asyncio.gather(*(_fetch(month) for month in months))
+        return [detail for detail in details if detail is not None]
+
+    @staticmethod
+    def _normalize_billing_month(value: str) -> str:
+        """Convert YYYYMM and date-like month values to the API's YYYYMM form."""
+        digits = "".join(character for character in value if character.isdigit())
+        if len(digits) < 6:
+            raise AptreeResponseError("The billing month was invalid")
+        month = digits[:6]
+        if not 1 <= int(month[4:6]) <= 12:
+            raise AptreeResponseError("The billing month was invalid")
+        return month
 
     async def _async_authenticate(self, *, force: bool = False) -> None:
         """Ensure that a usable access token is available."""
@@ -217,7 +271,7 @@ class AptreeApiClient:
         """Return headers expected by the resident API."""
         return {
             "Accept": "application/json",
-            "User-Agent": "HomeAssistant-HA-aptree/0.1.0",
+            "User-Agent": "HomeAssistant-HA-aptree/0.2.0",
             "X-App-Platform": API_APP_PLATFORM,
             "X-App-Version": API_APP_VERSION,
             "X-App-Build": API_APP_BUILD,

@@ -127,12 +127,47 @@ class AptreeApiClientTests(IsolatedAsyncioTestCase):
 
         self.assertEqual(123456, bill["totalAmount"]["amount"])
         self.assertEqual("202608", bill["billingMonth"])
+        self.assertEqual(1, len(bill["monthlyBillDetails"]))
         self.assertEqual("POST", session.requests[0]["method"])
         self.assertNotIn("Authorization", session.requests[0]["headers"])
         self.assertEqual({"billingMonth": "202608"}, session.requests[2]["params"])
         self.assertTrue(
             session.requests[2]["headers"]["Authorization"].startswith("Bearer ")
         )
+
+    async def test_fetches_details_for_each_history_month(self) -> None:
+        session = FakeSession(
+            [
+                token_response(),
+                FakeResponse(200, {"isSuccess": True, "result": "202608"}),
+                FakeResponse(
+                    200,
+                    {
+                        "isSuccess": True,
+                        "result": {
+                            "targetMonth": "2026-08-01",
+                            "yearlyAmountList": [
+                                {"month": "2026-07-01", "amount": 100000},
+                                {"month": "2026-08-01", "amount": 110000},
+                            ],
+                        },
+                    },
+                ),
+                FakeResponse(
+                    200,
+                    {
+                        "isSuccess": True,
+                        "result": {"targetMonth": "2026-07-01"},
+                    },
+                ),
+            ]
+        )
+        client = AptreeApiClient(session, "resident", "secret")  # type: ignore[arg-type]
+
+        bill = await client.async_get_bill()
+
+        self.assertEqual(2, len(bill["monthlyBillDetails"]))
+        self.assertEqual({"billingMonth": "202607"}, session.requests[3]["params"])
 
     async def test_expired_access_token_uses_refresh_token(self) -> None:
         session = FakeSession(

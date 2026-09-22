@@ -15,3 +15,4 @@ DEFAULT_UPDATE_INTERVAL = timedelta(hours=12)
 
 ATTR_BILLING_MONTH = "billing_month"
 ATTR_HISTORY = "history"
+ATTR_MONTHLY_DETAILS = "monthly_details"

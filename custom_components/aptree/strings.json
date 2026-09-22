@@ -60,9 +60,13 @@
       "same_area_maximum": {"name": "1. Amount · Same-area maximum"},
       "electricity_usage": {"name": "2. Usage · Electricity"},
       "electricity_amount": {"name": "1. Amount · Electricity charge"},
+      "electricity_average_usage": {"name": "2. Usage · Electricity peer average"},
+      "electricity_average_amount": {"name": "1. Amount · Electricity peer-average charge"},
       "water_usage": {"name": "2. Usage · Water"},
       "water_amount": {"name": "1. Amount · Water charge"},
-      "trash_amount": {"name": "1. Amount · Waste charge"},
+      "water_average_usage": {"name": "2. Usage · Water peer average"},
+      "water_average_amount": {"name": "1. Amount · Water peer-average charge"},
+      "trash_amount": {"name": "1. Amount · Food-waste charge"},
       "bill_details": {"name": "3. Other · Bill details"},
       "yearly_history": {"name": "1. Amount · 12-month history"}
     }
