@@ -65,6 +65,8 @@ class ParserTests(TestCase):
         result = parse_monthly_bill(monthly_html(), "202608")
         self.assertEqual("2026-08-01", result["targetMonth"])
         self.assertEqual(351170, result["totalAmount"]["amount"])
+        self.assertEqual(0, result["unpaidAmount"])
+        self.assertEqual(0, result["overdueAmount"])
         self.assertEqual(613, result["electricityComparison"]["usage"])
         self.assertEqual("음식물쓰레기 수수료", result["etcList"][0]["title"])
 

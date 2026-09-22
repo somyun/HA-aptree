@@ -151,8 +151,12 @@ def parse_monthly_bill(html: str, billing_month: str) -> dict[str, Any]:
         "billingMonth": month,
         "targetMonth": f"{month[:4]}-{month[4:]}-01",
         "totalAmount": {"amount": total},
-        "unpaidAmount": {"amount": next((i["amount"] for i in bill_rows if i["title"] == "미납관리비"), 0)},
-        "lateFee": {"amount": next((i["amount"] for i in bill_rows if i["title"] in {"미납연체료", "연체료"}), 0)},
+        "unpaidAmount": next((i["amount"] for i in bill_rows if i["title"] == "미납관리비"), 0),
+        "overdueAmount": sum(
+            i["amount"] or 0
+            for i in bill_rows
+            if i["title"] in {"미납연체료", "연체료"}
+        ),
         **grouped,
         "electricityComparison": comparison(grouped["electricityList"], "k"),
         "waterComparison": comparison(grouped["waterList"], "t"),
