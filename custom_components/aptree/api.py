@@ -271,7 +271,7 @@ class AptreeApiClient:
         """Return headers expected by the resident API."""
         return {
             "Accept": "application/json",
-            "User-Agent": "HomeAssistant-HA-aptree/0.2.0",
+            "User-Agent": "HomeAssistant-HA-aptree/0.2.1",
             "X-App-Platform": API_APP_PLATFORM,
             "X-App-Version": API_APP_VERSION,
             "X-App-Build": API_APP_BUILD,

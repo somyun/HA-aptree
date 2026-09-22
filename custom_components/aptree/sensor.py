@@ -80,8 +80,12 @@ def _category_title(list_key: str, value: Any) -> str | None:
         return None
     if list_key == "electricityList" and title.startswith("세대 ("):
         return "세대 전기요금"
+    if list_key == "electricityList" and title.startswith("전기차"):
+        return "전기차 충전요금"
     if list_key == "waterList" and title.startswith("세대 ("):
         return "세대 수도요금"
+    if list_key == "waterList" and title.startswith("급탕"):
+        return "급탕 요금"
     if title == "생활폐기물수수":
         return "음식물쓰레기 수수료"
     return title
