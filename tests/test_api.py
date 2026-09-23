@@ -8,7 +8,7 @@ import time
 from pathlib import Path
 from types import ModuleType
 from typing import Any
-from unittest import IsolatedAsyncioTestCase
+from unittest import IsolatedAsyncioTestCase, TestCase
 
 ROOT = Path(__file__).parents[1]
 INTEGRATION_DIR = ROOT / "custom_components" / "aptree"
@@ -50,6 +50,10 @@ _load_module("custom_components.aptree.const", "const.py")
 api_module = _load_module("custom_components.aptree.api", "api.py")
 AptreeApiClient = api_module.AptreeApiClient
 AptreeAuthenticationError = api_module.AptreeAuthenticationError
+AptreeResponseError = api_module.AptreeResponseError
+parse_monthly_bill = _load_module(
+    "custom_components.aptree.html_parser", "html_parser.py"
+).parse_monthly_bill
 
 
 class FakeResponse:
@@ -100,6 +104,15 @@ def token_response(access: str = "access", refresh: str = "refresh") -> FakeResp
     )
 
 
+async def fake_web_worker(_function: Any, *args: Any) -> dict[str, Any]:
+    """Return a distinct historical month without starting a subprocess."""
+    month = str(args[-1])
+    return {
+        "billingMonth": month,
+        "targetMonth": f"{month[:4]}-{month[4:]}-01",
+        "totalAmount": {"amount": int(month)},
+    }
+
 class AptreeApiClientTests(IsolatedAsyncioTestCase):
     """Exercise login, billing, and token refresh behavior."""
 
@@ -121,7 +134,9 @@ class AptreeApiClientTests(IsolatedAsyncioTestCase):
                 ),
             ]
         )
-        client = AptreeApiClient(session, "resident", "secret")  # type: ignore[arg-type]
+        client = AptreeApiClient(
+            session, "resident", "secret", run_sync=fake_web_worker
+        )  # type: ignore[arg-type]
 
         bill, pending = await client.async_get_bill()
 
@@ -163,12 +178,17 @@ class AptreeApiClientTests(IsolatedAsyncioTestCase):
                 ),
             ]
         )
-        client = AptreeApiClient(session, "resident", "secret")  # type: ignore[arg-type]
+        client = AptreeApiClient(
+            session, "resident", "secret", run_sync=fake_web_worker
+        )  # type: ignore[arg-type]
 
         bill, pending = await client.async_get_bill()
 
         self.assertEqual(2, len(bill["monthlyBillDetails"]))
-        self.assertEqual({"billingMonth": "202607"}, session.requests[3]["params"])
+        self.assertEqual(
+            ["202607", "202608"],
+            [item["billingMonth"] for item in bill["monthlyBillDetails"]],
+        )
 
     async def test_infers_year_for_korean_history_month_labels(self) -> None:
         latest = {
@@ -201,11 +221,12 @@ class AptreeApiClientTests(IsolatedAsyncioTestCase):
                 [
                     FakeResponse(200, {"isSuccess": True, "result": "202608"}),
                     FakeResponse(200, {"isSuccess": True, "result": summary}),
-                    FakeResponse(200, {"isSuccess": True, "result": {}}),
                 ]
             )
         session = FakeSession(responses)
-        client = AptreeApiClient(session, "resident", "secret")  # type: ignore[arg-type]
+        client = AptreeApiClient(
+            session, "resident", "secret", run_sync=fake_web_worker
+        )  # type: ignore[arg-type]
         bill = None
         for step in range(11):
             cached = bill["monthlyBillDetails"] if bill else None
@@ -214,12 +235,11 @@ class AptreeApiClientTests(IsolatedAsyncioTestCase):
 
         assert bill is not None
         self.assertEqual(12, len(bill["monthlyBillDetails"]))
-        detail_requests = [
-            request
-            for request in session.requests
-            if request["url"].endswith("/user/bill/detail")
-        ]
-        self.assertEqual(22, len(detail_requests))
+        self.assertEqual(
+            months,
+            [item["billingMonth"] for item in bill["monthlyBillDetails"]],
+        )
+
     async def test_expired_access_token_uses_refresh_token(self) -> None:
         session = FakeSession(
             [
@@ -235,7 +255,9 @@ class AptreeApiClientTests(IsolatedAsyncioTestCase):
                 ),
             ]
         )
-        client = AptreeApiClient(session, "resident", "secret")  # type: ignore[arg-type]
+        client = AptreeApiClient(
+            session, "resident", "secret", run_sync=fake_web_worker
+        )  # type: ignore[arg-type]
         await client.async_validate_credentials()
         client._access_token_expires_at = 0
 
@@ -261,3 +283,65 @@ class AptreeApiClientTests(IsolatedAsyncioTestCase):
 
         with self.assertRaises(AptreeAuthenticationError):
             await client.async_validate_credentials()
+
+
+class IsolatedHistoryTests(IsolatedAsyncioTestCase):
+    """Verify a failed child process cannot keep the backfill loop running."""
+
+    async def test_worker_failure_keeps_latest_and_stops_current_backfill(self) -> None:
+        session = FakeSession(
+            [
+                token_response(),
+                FakeResponse(200, {"isSuccess": True, "result": "202608"}),
+                FakeResponse(
+                    200,
+                    {
+                        "isSuccess": True,
+                        "result": {
+                            "yearlyAmountList": [
+                                {"month": "202607", "amount": 100000},
+                                {"month": "202608", "amount": 110000},
+                            ]
+                        },
+                    },
+                ),
+            ]
+        )
+
+        async def failed_worker(_function: Any, *args: Any) -> dict[str, Any]:
+            raise AptreeResponseError("worker failed")
+
+        client = AptreeApiClient(
+            session, "resident", "secret", run_sync=failed_worker
+        )  # type: ignore[arg-type]
+        bill, pending = await client.async_get_bill()
+
+        self.assertFalse(pending)
+        self.assertEqual(
+            ["202608"],
+            [item["billingMonth"] for item in bill["monthlyBillDetails"]],
+        )
+
+
+class ParserTests(TestCase):
+    """Verify the child-process HTML parser with a representative fragment."""
+
+    def test_monthly_bill_uses_requested_month(self) -> None:
+        html = """
+        <div class="con"><div class="tit_area">납기내 금액</div>
+        <div class="detail_area"><ul>
+          <li><span class="text">당월부과금</span><span class="fee">123,450</span></li>
+        </ul></div></div>
+        <div class="con"><div class="tit_area">할인합계 금액</div>
+        <div class="detail_area"><ul></ul></div></div>
+        <div class="con"><div class="tit_area">관리비 소계</div>
+        <div class="detail_area"><ul>
+          <li><span class="text">생활폐기물수수</span><span class="fee">450</span></li>
+        </ul></div></div>
+        """
+        result = parse_monthly_bill(html, "202507")
+
+        self.assertEqual("202507", result["billingMonth"])
+        self.assertEqual("2025-07-01", result["targetMonth"])
+        self.assertEqual(123450, result["totalAmount"]["amount"])
+        self.assertEqual("음식물쓰레기 수수료", result["etcList"][0]["title"])

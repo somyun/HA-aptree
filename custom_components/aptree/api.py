@@ -4,9 +4,13 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import json
 import logging
+import subprocess
+import sys
 import time
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
+from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
@@ -18,9 +22,58 @@ from .const import (
     API_APP_VERSION,
     API_BASE_URL,
     API_REQUEST_TIMEOUT,
+    API_WEB_WORKER_TIMEOUT,
+    DEFAULT_COMMUNITY_ID,
 )
 
 _LOGGER = logging.getLogger(__name__)
+
+
+def _fetch_web_bill_sync(
+    username: str, password: str, community_id: str, month: str
+) -> dict[str, Any]:
+    """Fetch and parse one web bill in a killable child process."""
+    worker = Path(__file__).with_name("web_worker.py")
+    payload = json.dumps(
+        {
+            "username": username,
+            "password": password,
+            "community": community_id,
+            "month": month,
+        },
+        ensure_ascii=False,
+    )
+    try:
+        result = subprocess.run(
+            [sys.executable, str(worker)],
+            input=payload,
+            capture_output=True,
+            text=True,
+            timeout=API_WEB_WORKER_TIMEOUT,
+            check=False,
+        )
+    except (OSError, subprocess.TimeoutExpired) as err:
+        raise AptreeConnectionError(
+            f"Historical detail worker failed ({type(err).__name__})"
+        ) from err
+    if result.returncode != 0:
+        error_type = (
+            result.stderr.strip().splitlines()[-1]
+            if result.stderr.strip()
+            else "WorkerError"
+        )
+        raise AptreeResponseError(f"Historical detail worker failed ({error_type})")
+    try:
+        detail = json.loads(result.stdout)
+    except (TypeError, ValueError) as err:
+        raise AptreeResponseError(
+            "Historical detail worker returned invalid JSON"
+        ) from err
+    if not isinstance(detail, dict):
+        raise AptreeResponseError(
+            "Historical detail worker returned an invalid object"
+        )
+    return detail
 
 
 class AptreeApiError(Exception):
@@ -42,11 +95,20 @@ class AptreeResponseError(AptreeApiError):
 class AptreeApiClient:
     """Client for APTREE's resident-facing JSON API."""
 
-    def __init__(self, session: ClientSession, username: str, password: str) -> None:
+    def __init__(
+        self,
+        session: ClientSession,
+        username: str,
+        password: str,
+        community_id: str = DEFAULT_COMMUNITY_ID,
+        run_sync: Callable[..., Awaitable[Any]] | None = None,
+    ) -> None:
         """Initialize the client."""
         self._session = session
         self._username = username
         self._password = password
+        self._community_id = community_id
+        self._run_sync = run_sync
         self._client_id = str(uuid4())
         self._access_token: str | None = None
         self._refresh_token: str | None = None
@@ -81,14 +143,33 @@ class AptreeApiClient:
         }
         cached_by_month[latest_month] = copy.deepcopy(latest)
         missing_months = [month for month in months if month not in cached_by_month]
+        historical_failed = False
         if missing_months:
             month = missing_months[0]
-            cached_by_month[month] = await self.async_get_bill_detail(month)
+            try:
+                if self._run_sync is None:
+                    raise AptreeResponseError("Historical detail worker is unavailable")
+                cached_by_month[month] = await self._run_sync(
+                    _fetch_web_bill_sync,
+                    self._username,
+                    self._password,
+                    self._community_id,
+                    month,
+                )
+            except AptreeApiError as err:
+                historical_failed = True
+                _LOGGER.warning(
+                    "Could not fetch APTREE historical month %s (%s)",
+                    month,
+                    type(err).__name__,
+                )
 
         latest["monthlyBillDetails"] = [
             cached_by_month[month] for month in sorted(cached_by_month)
         ]
-        remaining = any(month not in cached_by_month for month in months)
+        remaining = not historical_failed and any(
+            month not in cached_by_month for month in months
+        )
         return latest, remaining
 
     async def async_get_bill_detail(self, billing_month: str) -> dict[str, Any]:
@@ -290,7 +371,7 @@ class AptreeApiClient:
         """Return headers expected by the resident API."""
         return {
             "Accept": "application/json",
-            "User-Agent": "HomeAssistant-HA-aptree/0.7.0",
+            "User-Agent": "HomeAssistant-HA-aptree/0.8.0",
             "X-App-Platform": API_APP_PLATFORM,
             "X-App-Version": API_APP_VERSION,
             "X-App-Build": API_APP_BUILD,
