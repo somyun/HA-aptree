@@ -6,9 +6,11 @@ import asyncio
 import copy
 import re
 from collections.abc import Awaitable, Callable, Mapping
+from http.cookiejar import CookieJar
 from typing import Any
-
-from aiohttp import ClientError, ClientSession
+from urllib.error import HTTPError, URLError
+from urllib.parse import urlencode
+from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 from .const import API_BASE_URL, API_REQUEST_TIMEOUT, DEFAULT_COMMUNITY_ID
 from .html_parser import parse_analysis_page, parse_monthly_bill
@@ -30,12 +32,52 @@ class AptreeResponseError(AptreeApiError):
     """The APTREE service returned an unexpected response."""
 
 
+class AptreeWebSession:
+    """Blocking cookie-aware transport intended for a Home Assistant executor."""
+
+    def __init__(self) -> None:
+        self._opener = build_opener(HTTPCookieProcessor(CookieJar()))
+
+    def request(
+        self,
+        method: str,
+        url: str,
+        headers: Mapping[str, str],
+        data: Mapping[str, str] | None,
+    ) -> tuple[int, str, str]:
+        """Execute one request with a hard socket timeout."""
+        payload = urlencode(data).encode() if data is not None else None
+        request = Request(url, data=payload, headers=dict(headers), method=method)
+        try:
+            with self._opener.open(request, timeout=API_REQUEST_TIMEOUT) as response:
+                status = response.getcode()
+                body = response.read()
+                final_url = response.geturl()
+                charset = response.headers.get_content_charset()
+        except HTTPError as err:
+            status = err.code
+            body = err.read()
+            final_url = err.geturl()
+            charset = err.headers.get_content_charset()
+        except (TimeoutError, URLError, OSError) as err:
+            reason = err.reason if isinstance(err, URLError) else err
+            raise AptreeConnectionError(
+                f"Could not connect to APTREE ({type(reason).__name__})"
+            ) from err
+
+        try:
+            text = body.decode(charset or "utf-8")
+        except (LookupError, UnicodeDecodeError):
+            text = body.decode("utf-8", errors="replace")
+        return status, text, final_url
+
+
 class AptreeApiClient:
     """Client for the logged-in APTREE resident website."""
 
     def __init__(
         self,
-        session: ClientSession,
+        session: AptreeWebSession,
         username: str,
         password: str,
         community_id: str = DEFAULT_COMMUNITY_ID,
@@ -188,24 +230,16 @@ class AptreeApiClient:
             await self._async_login()
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-            "User-Agent": "HomeAssistant-HA-aptree/0.5.2",
+            "User-Agent": "HomeAssistant-HA-aptree/0.6.0",
             "Referer": f"{self._site_url}/cac.php",
         }
-        try:
-            async with asyncio.timeout(API_REQUEST_TIMEOUT):
-                async with self._session.request(
-                    method,
-                    f"{self._site_url}{path}",
-                    headers=headers,
-                    data=data,
-                ) as response:
-                    status = response.status
-                    text = await response.text(errors="replace")
-                    final_url = str(response.url)
-        except (TimeoutError, ClientError) as err:
-            raise AptreeConnectionError(
-                f"Could not connect to APTREE ({type(err).__name__})"
-            ) from err
+        args = (method, f"{self._site_url}{path}", headers, data)
+        if self._run_sync is not None:
+            status, text, final_url = await self._run_sync(
+                self._session.request, *args
+            )
+        else:
+            status, text, final_url = self._session.request(*args)
 
         if status in (401, 403) or ("/member/login" in final_url and authenticated):
             self._authenticated = False

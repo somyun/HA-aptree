@@ -7,11 +7,6 @@ from pathlib import Path
 from types import ModuleType, SimpleNamespace
 from unittest import IsolatedAsyncioTestCase, TestCase
 
-aiohttp_stub = ModuleType("aiohttp")
-aiohttp_stub.ClientError = type("ClientError", (Exception,), {})
-aiohttp_stub.ClientSession = object
-sys.modules.setdefault("aiohttp", aiohttp_stub)
-
 # Load submodules without importing the integration package, which requires a
 # complete Home Assistant test environment.
 package_stub = ModuleType("custom_components.aptree")
@@ -80,18 +75,9 @@ class ParserTests(TestCase):
 
 class FakeResponse:
     def __init__(self, text: str, url: str, status: int = 200) -> None:
-        self._text = text
+        self.text = text
         self.url = url
         self.status = status
-
-    async def text(self, **kwargs) -> str:
-        return self._text
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *args):
-        return False
 
 
 class FakeSession:
@@ -99,9 +85,12 @@ class FakeSession:
         self.responses = responses
         self.requests: list[dict] = []
 
-    def request(self, method: str, url: str, **kwargs):
-        self.requests.append({"method": method, "url": url, **kwargs})
-        return self.responses.pop(0)
+    def request(self, method: str, url: str, headers: dict, data: dict | None):
+        self.requests.append(
+            {"method": method, "url": url, "headers": headers, "data": data}
+        )
+        response = self.responses.pop(0)
+        return response.status, response.text, response.url
 
 
 class ClientTests(IsolatedAsyncioTestCase):
@@ -193,7 +182,7 @@ class ClientTests(IsolatedAsyncioTestCase):
         self.assertFalse(pending)
         self.assertEqual(12, len(second["monthlyBillDetails"]))
 
-    async def test_parsing_uses_injected_sync_runner(self) -> None:
+    async def test_network_and_parsing_use_injected_sync_runner(self) -> None:
         session = FakeSession(
             [
                 FakeResponse(
@@ -224,6 +213,6 @@ class ClientTests(IsolatedAsyncioTestCase):
         )
         await client.async_get_bill()
         self.assertEqual(
-            ["parse_analysis_page", "parse_monthly_bill"],
+            ["request", "request", "parse_analysis_page", "request", "parse_monthly_bill"],
             parser_calls,
         )

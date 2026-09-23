@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import Any
 
 import voluptuous as vol
-from aiohttp import CookieJar
 from homeassistant.config_entries import (
     ConfigEntry,
     ConfigFlow,
@@ -14,7 +13,6 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
@@ -26,6 +24,7 @@ from .api import (
     AptreeApiError,
     AptreeAuthenticationError,
     AptreeConnectionError,
+    AptreeWebSession,
 )
 from .const import CONF_COMMUNITY_ID, DEFAULT_COMMUNITY_ID, DOMAIN
 
@@ -69,16 +68,14 @@ async def _async_validate_credentials(
     hass: HomeAssistant, username: str, password: str, community_id: str
 ) -> None:
     """Validate credentials against the sign-in endpoint."""
-    session = async_create_clientsession(
-        hass,
-        auto_cleanup=False,
-        cookie_jar=CookieJar(),
+    api = AptreeApiClient(
+        AptreeWebSession(),
+        username,
+        password,
+        community_id,
+        hass.async_add_executor_job,
     )
-    api = AptreeApiClient(session, username, password, community_id)
-    try:
-        await api.async_validate_credentials()
-    finally:
-        session.detach()
+    await api.async_validate_credentials()
 
 
 class AptreeConfigFlow(ConfigFlow, domain=DOMAIN):
