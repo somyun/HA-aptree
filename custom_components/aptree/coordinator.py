@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import copy
 import logging
 from collections.abc import Mapping
@@ -20,6 +21,7 @@ from .api import (
     AptreeAuthenticationError,
 )
 from .const import (
+    API_UPDATE_TIMEOUT,
     DEFAULT_UPDATE_INTERVAL,
     DOMAIN,
     STORAGE_KEY_PREFIX,
@@ -57,6 +59,7 @@ class AptreeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         )
         self._stored_data: dict[str, Any] | None = None
         self._storage_loaded = False
+        self._backfill_pending = True
 
     async def _async_load_storage(self) -> None:
         """Load the persistent archive once per integration runtime."""
@@ -77,6 +80,11 @@ class AptreeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
         self.async_set_updated_data(
             self._public_data(self._stored_data) if self._stored_data else {}
         )
+
+    @property
+    def backfill_pending(self) -> bool:
+        """Return whether another historical month should be fetched."""
+        return self._backfill_pending
 
     @staticmethod
     def _public_data(data: dict[str, Any]) -> dict[str, Any]:
@@ -103,7 +111,12 @@ class AptreeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             if isinstance(value, list):
                 cached_details = value
         try:
-            data = await self.api.async_get_bill(cached_details)
+            async with asyncio.timeout(API_UPDATE_TIMEOUT):
+                data, self._backfill_pending = await self.api.async_get_bill(
+                    cached_details
+                )
+        except TimeoutError as err:
+            raise UpdateFailed("APTREE update exceeded the time limit") from err
         except AptreeAuthenticationError as err:
             raise ConfigEntryAuthFailed("APTREE authentication failed") from err
         except AptreeApiError as err:

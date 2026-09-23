@@ -59,8 +59,8 @@ class AptreeApiClient:
 
     async def async_get_bill(
         self, cached_details: list[dict[str, Any]] | None = None
-    ) -> dict[str, Any]:
-        """Return billing data, downloading only months absent from the cache."""
+    ) -> tuple[dict[str, Any], bool]:
+        """Return billing data and fetch at most one missing month."""
         await self._async_login()
         analysis_html = await self._async_request_text("GET", "/cac_confirm.php")
         try:
@@ -80,24 +80,35 @@ class AptreeApiClient:
             if isinstance(detail, Mapping) and detail.get("billingMonth")
         }
         missing_months = [month for month in months if month not in cached_by_month]
-        semaphore = asyncio.Semaphore(3)
 
-        async def _fetch(month: str) -> dict[str, Any]:
-            async with semaphore:
-                html = await self._async_request_text(
-                    "POST", "/lib/cac.load_content.php", data={"date": month}
-                )
+        # The newest bill is useful immediately. Remaining historical months are
+        # then filled from oldest to newest, one coordinator refresh at a time.
+        month_to_fetch = None
+        if latest_month in missing_months:
+            month_to_fetch = latest_month
+        elif missing_months:
+            month_to_fetch = missing_months[0]
+
+        if month_to_fetch is not None:
+            html = await self._async_request_text(
+                "POST",
+                "/lib/cac.load_content.php",
+                data={"date": month_to_fetch},
+            )
             try:
-                return await self._async_parse(parse_monthly_bill, html, month)
+                detail = await self._async_parse(
+                    parse_monthly_bill, html, month_to_fetch
+                )
             except ValueError as err:
                 raise AptreeResponseError(
-                    f"Could not parse the APTREE bill for {month}"
+                    f"Could not parse the APTREE bill for {month_to_fetch}"
                 ) from err
-
-        fetched = await asyncio.gather(*(_fetch(month) for month in missing_months))
-        for detail in fetched:
             cached_by_month[detail["billingMonth"]] = detail
+
         details = [cached_by_month[month] for month in sorted(cached_by_month)]
+        if not details:
+            raise AptreeResponseError("APTREE did not return any monthly bill details")
+
         latest = next(
             (detail for detail in details if detail["billingMonth"] == latest_month),
             details[-1],
@@ -125,7 +136,9 @@ class AptreeApiClient:
                 continue
             for key in ("electricityComparison", "waterComparison"):
                 detail.setdefault(key, {}).update(analysis.get(key, {}))
-        return latest
+
+        remaining = any(month not in cached_by_month for month in months)
+        return latest, remaining
 
     async def async_get_bill_detail(self, billing_month: str) -> dict[str, Any]:
         """Return one month of detailed web billing data."""
@@ -175,7 +188,7 @@ class AptreeApiClient:
             await self._async_login()
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-            "User-Agent": "HomeAssistant-HA-aptree/0.4.3",
+            "User-Agent": "HomeAssistant-HA-aptree/0.5.0",
             "Referer": f"{self._site_url}/cac.php",
         }
         try:

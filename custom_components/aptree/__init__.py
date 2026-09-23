@@ -2,18 +2,27 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 from dataclasses import dataclass
 from typing import Any
 
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
-from homeassistant.core import HomeAssistant
+from homeassistant.const import (
+    CONF_PASSWORD,
+    CONF_USERNAME,
+    EVENT_HOMEASSISTANT_STARTED,
+    Platform,
+)
+from homeassistant.core import CoreState, Event, HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 
 from .api import AptreeApiClient
 from .const import (
+    BACKFILL_MAX_STEPS,
+    BACKFILL_START_DELAY,
+    BACKFILL_STEP_DELAY,
     CONF_COMMUNITY_ID,
     DEFAULT_COMMUNITY_ID,
     STORAGE_KEY_PREFIX,
@@ -53,10 +62,34 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.runtime_data = AptreeRuntimeData(api=api, coordinator=coordinator)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    # Do not start a first-run 12-month backfill from setup. Coordinator
-    # listeners retain the normal update interval without delaying startup.
+    @callback
+    def _schedule_backfill(_event: Event | None = None) -> None:
+        entry.async_create_background_task(
+            hass,
+            _async_backfill(coordinator),
+            "APTREE paced billing history backfill",
+        )
+
+    # The listener itself is cheap and setup returns immediately. Network work
+    # begins only after Home Assistant has declared startup complete.
+    if hass.state is CoreState.running:
+        _schedule_backfill()
+    else:
+        entry.async_on_unload(
+            hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STARTED, _schedule_backfill)
+        )
     return True
 
+
+async def _async_backfill(coordinator: AptreeDataUpdateCoordinator) -> None:
+    """Fill history gradually without taking part in Home Assistant startup."""
+    await asyncio.sleep(BACKFILL_START_DELAY)
+    for step in range(BACKFILL_MAX_STEPS):
+        await coordinator.async_request_refresh()
+        if not coordinator.last_update_success or not coordinator.backfill_pending:
+            return
+        if step < BACKFILL_MAX_STEPS - 1:
+            await asyncio.sleep(BACKFILL_STEP_DELAY)
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload an APTREE config entry."""

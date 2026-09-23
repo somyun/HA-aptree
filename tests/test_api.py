@@ -117,18 +117,37 @@ class ClientTests(IsolatedAsyncioTestCase):
         with self.assertRaises(AptreeAuthenticationError):
             await AptreeApiClient(session, "bad", "bad").async_validate_credentials()
 
-    async def test_bill_fetch_posts_each_distinct_month(self) -> None:
+    async def test_bill_backfill_fetches_one_distinct_month_per_call(self) -> None:
         responses = [
             FakeResponse("ok", "https://aptree.co.kr/home/user/6745/member/login.php"),
-            FakeResponse(analysis_html(), "https://aptree.co.kr/home/user/6745/cac_confirm.php"),
-            *[
-                FakeResponse(monthly_html(300000 + i), "https://aptree.co.kr/home/user/6745/lib/cac.load_content.php")
-                for i in range(12)
-            ],
         ]
+        for i in range(12):
+            responses.extend(
+                [
+                    FakeResponse(
+                        analysis_html(),
+                        "https://aptree.co.kr/home/user/6745/cac_confirm.php",
+                    ),
+                    FakeResponse(
+                        monthly_html(300000 + i),
+                        "https://aptree.co.kr/home/user/6745/lib/cac.load_content.php",
+                    ),
+                ]
+            )
+
         session = FakeSession(responses)
-        result = await AptreeApiClient(session, "resident", "secret").async_get_bill()
-        requests = [request for request in session.requests if request["url"].endswith("cac.load_content.php")]
+        client = AptreeApiClient(session, "resident", "secret")
+        result = None
+        for i in range(12):
+            cached = result["monthlyBillDetails"] if result else None
+            result, pending = await client.async_get_bill(cached)
+            self.assertEqual(i < 11, pending)
+
+        requests = [
+            request
+            for request in session.requests
+            if request["url"].endswith("cac.load_content.php")
+        ]
         self.assertEqual(12, len(requests))
         self.assertEqual(12, len({request["data"]["date"] for request in requests}))
         self.assertEqual(12, len(result["monthlyBillDetails"]))
@@ -136,21 +155,75 @@ class ClientTests(IsolatedAsyncioTestCase):
     async def test_cached_months_are_not_downloaded_again(self) -> None:
         responses = [
             FakeResponse("ok", "https://aptree.co.kr/home/user/6745/member/login.php"),
-            FakeResponse(analysis_html(), "https://aptree.co.kr/home/user/6745/cac_confirm.php"),
-            *[
-                FakeResponse(monthly_html(300000 + i), "https://aptree.co.kr/home/user/6745/lib/cac.load_content.php")
-                for i in range(12)
-            ],
-            FakeResponse(analysis_html(), "https://aptree.co.kr/home/user/6745/cac_confirm.php"),
         ]
+        for i in range(12):
+            responses.extend(
+                [
+                    FakeResponse(
+                        analysis_html(),
+                        "https://aptree.co.kr/home/user/6745/cac_confirm.php",
+                    ),
+                    FakeResponse(
+                        monthly_html(300000 + i),
+                        "https://aptree.co.kr/home/user/6745/lib/cac.load_content.php",
+                    ),
+                ]
+            )
+        responses.append(
+            FakeResponse(
+                analysis_html(),
+                "https://aptree.co.kr/home/user/6745/cac_confirm.php",
+            )
+        )
+
         session = FakeSession(responses)
         client = AptreeApiClient(session, "resident", "secret")
-        first = await client.async_get_bill()
-        second = await client.async_get_bill(first["monthlyBillDetails"])
+        result = None
+        for _ in range(12):
+            cached = result["monthlyBillDetails"] if result else None
+            result, _ = await client.async_get_bill(cached)
+
+        second, pending = await client.async_get_bill(result["monthlyBillDetails"])
         detail_requests = [
             request
             for request in session.requests
             if request["url"].endswith("cac.load_content.php")
         ]
         self.assertEqual(12, len(detail_requests))
+        self.assertFalse(pending)
         self.assertEqual(12, len(second["monthlyBillDetails"]))
+
+    async def test_parsing_uses_injected_sync_runner(self) -> None:
+        session = FakeSession(
+            [
+                FakeResponse(
+                    "ok",
+                    "https://aptree.co.kr/home/user/6745/member/login.php",
+                ),
+                FakeResponse(
+                    analysis_html(),
+                    "https://aptree.co.kr/home/user/6745/cac_confirm.php",
+                ),
+                FakeResponse(
+                    monthly_html(),
+                    "https://aptree.co.kr/home/user/6745/lib/cac.load_content.php",
+                ),
+            ]
+        )
+        parser_calls = []
+
+        async def run_sync(parser, *args):
+            parser_calls.append(parser.__name__)
+            return parser(*args)
+
+        client = AptreeApiClient(
+            session,
+            "resident",
+            "secret",
+            run_sync=run_sync,
+        )
+        await client.async_get_bill()
+        self.assertEqual(
+            ["parse_analysis_page", "parse_monthly_bill"],
+            parser_calls,
+        )
