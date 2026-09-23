@@ -7,6 +7,7 @@ import hashlib
 from dataclasses import dataclass
 from typing import Any
 
+from aiohttp import CookieJar
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import (
     CONF_PASSWORD,
@@ -15,7 +16,7 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import CoreState, Event, HomeAssistant, callback
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.aiohttp_client import async_create_clientsession
 from homeassistant.helpers.storage import Store
 
 from .api import AptreeApiClient
@@ -48,7 +49,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         f"{community_id}\0{entry.data[CONF_USERNAME].casefold()}".encode()
     ).hexdigest()
     api = AptreeApiClient(
-        async_get_clientsession(hass),
+        async_create_clientsession(hass, cookie_jar=CookieJar()),
         entry.data[CONF_USERNAME],
         entry.data[CONF_PASSWORD],
         community_id,
@@ -62,6 +63,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.runtime_data = AptreeRuntimeData(api=api, coordinator=coordinator)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
     @callback
     def _schedule_backfill(_event: Event | None = None) -> None:
         entry.async_create_background_task(
@@ -90,6 +92,7 @@ async def _async_backfill(coordinator: AptreeDataUpdateCoordinator) -> None:
             return
         if step < BACKFILL_MAX_STEPS - 1:
             await asyncio.sleep(BACKFILL_STEP_DELAY)
+
 
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload an APTREE config entry."""
