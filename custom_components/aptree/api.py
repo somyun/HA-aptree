@@ -173,7 +173,7 @@ class AptreeApiClient:
             await self._async_login()
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-            "User-Agent": "HomeAssistant-HA-aptree/0.4.0",
+            "User-Agent": "HomeAssistant-HA-aptree/0.4.1",
             "Referer": f"{self._site_url}/cac.php",
         }
         try:

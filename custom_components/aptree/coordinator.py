@@ -71,6 +71,13 @@ class AptreeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             self._stored_data = copy.deepcopy(dict(saved["data"]))
         self._storage_loaded = True
 
+    async def async_initialize_from_storage(self) -> None:
+        """Initialize entities without waiting for any APTREE network request."""
+        await self._async_load_storage()
+        self.async_set_updated_data(
+            self._public_data(self._stored_data) if self._stored_data else {}
+        )
+
     @staticmethod
     def _public_data(data: dict[str, Any]) -> dict[str, Any]:
         """Limit entity attributes to the latest 12 months.

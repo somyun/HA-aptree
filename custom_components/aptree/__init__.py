@@ -45,11 +45,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         community_id,
     )
     coordinator = AptreeDataUpdateCoordinator(hass, entry, api, cache_scope)
-    await coordinator.async_config_entry_first_refresh()
+    # Restore persisted data immediately. The potentially slow first backfill
+    # must never block Home Assistant startup.
+    await coordinator.async_initialize_from_storage()
 
     entry.runtime_data = AptreeRuntimeData(api=api, coordinator=coordinator)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    entry.async_create_background_task(
+        hass,
+        coordinator.async_request_refresh(),
+        "APTREE background billing refresh",
+    )
     return True
 
 
