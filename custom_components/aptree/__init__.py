@@ -43,6 +43,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         entry.data[CONF_USERNAME],
         entry.data[CONF_PASSWORD],
         community_id,
+        hass.async_add_executor_job,
     )
     coordinator = AptreeDataUpdateCoordinator(hass, entry, api, cache_scope)
     # Restore persisted data immediately. The potentially slow first backfill
@@ -52,11 +53,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.runtime_data = AptreeRuntimeData(api=api, coordinator=coordinator)
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    entry.async_create_background_task(
-        hass,
-        coordinator.async_request_refresh(),
-        "APTREE background billing refresh",
-    )
+    # Do not start a first-run 12-month backfill from setup. Coordinator
+    # listeners retain the normal update interval without delaying startup.
     return True
 
 

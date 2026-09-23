@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import copy
 import re
-from collections.abc import Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
 
 from aiohttp import ClientError, ClientSession
@@ -39,11 +39,13 @@ class AptreeApiClient:
         username: str,
         password: str,
         community_id: str = DEFAULT_COMMUNITY_ID,
+        run_sync: Callable[..., Awaitable[Any]] | None = None,
     ) -> None:
         self._session = session
         self._username = username
         self._password = password
         self._community_id = self._normalize_community_id(community_id)
+        self._run_sync = run_sync
         self._authenticated = False
         self._auth_lock = asyncio.Lock()
 
@@ -62,7 +64,7 @@ class AptreeApiClient:
         await self._async_login()
         analysis_html = await self._async_request_text("GET", "/cac_confirm.php")
         try:
-            analysis = parse_analysis_page(analysis_html)
+            analysis = await self._async_parse(parse_analysis_page, analysis_html)
         except ValueError as err:
             raise AptreeResponseError("Could not parse the APTREE analysis page") from err
 
@@ -86,7 +88,7 @@ class AptreeApiClient:
                     "POST", "/lib/cac.load_content.php", data={"date": month}
                 )
             try:
-                return parse_monthly_bill(html, month)
+                return await self._async_parse(parse_monthly_bill, html, month)
             except ValueError as err:
                 raise AptreeResponseError(
                     f"Could not parse the APTREE bill for {month}"
@@ -133,7 +135,7 @@ class AptreeApiClient:
             "POST", "/lib/cac.load_content.php", data={"date": month}
         )
         try:
-            return parse_monthly_bill(html, month)
+            return await self._async_parse(parse_monthly_bill, html, month)
         except ValueError as err:
             raise AptreeResponseError(f"Could not parse the APTREE bill for {month}") from err
 
@@ -173,7 +175,7 @@ class AptreeApiClient:
             await self._async_login()
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-            "User-Agent": "HomeAssistant-HA-aptree/0.4.1",
+            "User-Agent": "HomeAssistant-HA-aptree/0.4.3",
             "Referer": f"{self._site_url}/cac.php",
         }
         try:
@@ -199,6 +201,12 @@ class AptreeApiClient:
         if status >= 400:
             raise AptreeResponseError(f"APTREE website returned HTTP {status}")
         return text
+
+    async def _async_parse(self, parser: Callable[..., Any], *args: Any) -> Any:
+        """Run CPU-bound HTML parsing outside Home Assistant's event loop."""
+        if self._run_sync is not None:
+            return await self._run_sync(parser, *args)
+        return parser(*args)
 
     @staticmethod
     def _normalize_community_id(value: str) -> str:
