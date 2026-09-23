@@ -188,7 +188,7 @@ class AptreeApiClient:
             await self._async_login()
         headers = {
             "Accept": "text/html,application/xhtml+xml,application/json;q=0.9,*/*;q=0.8",
-            "User-Agent": "HomeAssistant-HA-aptree/0.5.1",
+            "User-Agent": "HomeAssistant-HA-aptree/0.5.2",
             "Referer": f"{self._site_url}/cac.php",
         }
         try:
@@ -203,7 +203,9 @@ class AptreeApiClient:
                     text = await response.text(errors="replace")
                     final_url = str(response.url)
         except (TimeoutError, ClientError) as err:
-            raise AptreeConnectionError("Could not connect to APTREE") from err
+            raise AptreeConnectionError(
+                f"Could not connect to APTREE ({type(err).__name__})"
+            ) from err
 
         if status in (401, 403) or ("/member/login" in final_url and authenticated):
             self._authenticated = False
