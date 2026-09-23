@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "아파트리 연결",
-        "description": "아파트리 웹사이트의 입주민 계정을 입력하세요. 단지 번호는 주소의 /home/user/6745/에서 6745 부분입니다.",
+        "description": "아파트리 앱의 입주민 계정을 입력하세요. 단지 번호는 기존 설치와의 호환을 위해 유지됩니다.",
         "data": {"community_id": "단지 번호", "username": "아파트리 아이디", "password": "비밀번호"}
       },
       "reauth_confirm": {

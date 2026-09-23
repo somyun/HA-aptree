@@ -5,7 +5,10 @@ from datetime import timedelta
 DOMAIN = "aptree"
 PLATFORMS = ["select", "sensor"]
 
-API_BASE_URL = "https://aptree.co.kr"
+API_BASE_URL = "https://user-api.aptree.co.kr"
+API_APP_PLATFORM = "android"
+API_APP_VERSION = "4.3.1"
+API_APP_BUILD = "12242051"
 API_REQUEST_TIMEOUT = 20
 API_UPDATE_TIMEOUT = 65
 BACKFILL_START_DELAY = 90

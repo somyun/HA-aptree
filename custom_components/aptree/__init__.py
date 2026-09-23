@@ -15,9 +15,10 @@ from homeassistant.const import (
     Platform,
 )
 from homeassistant.core import CoreState, Event, HomeAssistant, callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.storage import Store
 
-from .api import AptreeApiClient, AptreeWebSession
+from .api import AptreeApiClient
 from .const import (
     BACKFILL_MAX_STEPS,
     BACKFILL_START_DELAY,
@@ -44,14 +45,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up APTREE from a config entry."""
     community_id = entry.data.get(CONF_COMMUNITY_ID, DEFAULT_COMMUNITY_ID)
     cache_scope = hashlib.sha256(
-        f"{community_id}\0{entry.data[CONF_USERNAME].casefold()}".encode()
+        f"json-v1\0{community_id}\0{entry.data[CONF_USERNAME].casefold()}".encode()
     ).hexdigest()
     api = AptreeApiClient(
-        AptreeWebSession(),
+        async_get_clientsession(hass),
         entry.data[CONF_USERNAME],
         entry.data[CONF_PASSWORD],
-        community_id,
-        hass.async_add_executor_job,
     )
     coordinator = AptreeDataUpdateCoordinator(hass, entry, api, cache_scope)
     # Restore persisted data immediately. The potentially slow first backfill

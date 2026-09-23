@@ -4,7 +4,7 @@
     "step": {
       "user": {
         "title": "Connect APTREE",
-        "description": "Enter the resident account used on the APTREE website. The community number is the number in /home/user/6745/ of your APTREE URL.",
+        "description": "Enter the resident account used in the APTREE app. The community number is retained for compatibility with existing installations.",
         "data": {
           "community_id": "Community number",
           "username": "APTREE ID",

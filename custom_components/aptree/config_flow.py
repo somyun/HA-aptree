@@ -13,6 +13,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
 from homeassistant.core import HomeAssistant, callback
+from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.selector import (
     TextSelector,
     TextSelectorConfig,
@@ -24,7 +25,6 @@ from .api import (
     AptreeApiError,
     AptreeAuthenticationError,
     AptreeConnectionError,
-    AptreeWebSession,
 )
 from .const import CONF_COMMUNITY_ID, DEFAULT_COMMUNITY_ID, DOMAIN
 
@@ -65,16 +65,10 @@ def _credentials_schema(
 
 
 async def _async_validate_credentials(
-    hass: HomeAssistant, username: str, password: str, community_id: str
+    hass: HomeAssistant, username: str, password: str
 ) -> None:
     """Validate credentials against the sign-in endpoint."""
-    api = AptreeApiClient(
-        AptreeWebSession(),
-        username,
-        password,
-        community_id,
-        hass.async_add_executor_job,
-    )
+    api = AptreeApiClient(async_get_clientsession(hass), username, password)
     await api.async_validate_credentials()
 
 
@@ -94,7 +88,7 @@ class AptreeConfigFlow(ConfigFlow, domain=DOMAIN):
             community_id = user_input[CONF_COMMUNITY_ID].strip()
             try:
                 await _async_validate_credentials(
-                    self.hass, username, password, community_id
+                    self.hass, username, password
                 )
             except AptreeAuthenticationError:
                 errors["base"] = "invalid_auth"
@@ -142,7 +136,7 @@ class AptreeConfigFlow(ConfigFlow, domain=DOMAIN):
             community_id = user_input[CONF_COMMUNITY_ID].strip()
             try:
                 await _async_validate_credentials(
-                    self.hass, username, password, community_id
+                    self.hass, username, password
                 )
             except AptreeAuthenticationError:
                 errors["base"] = "invalid_auth"
@@ -206,7 +200,7 @@ class AptreeOptionsFlow(OptionsFlow):
             else:
                 try:
                     await _async_validate_credentials(
-                        self.hass, username, password, community_id
+                        self.hass, username, password
                     )
                 except AptreeAuthenticationError:
                     errors["base"] = "invalid_auth"
