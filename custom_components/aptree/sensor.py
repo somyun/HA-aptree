@@ -91,6 +91,60 @@ def _category_title(list_key: str, value: Any) -> str | None:
     return title
 
 
+_FOOD_WASTE_TITLES = ("음식물쓰레기 수수료", "생활폐기물수수")
+
+
+def _list_item_amount(
+    detail: Mapping[str, Any], list_key: str, predicate: Callable[[str], bool]
+) -> int | None:
+    """Return the first matching fee line amount from a bill list."""
+    items = detail.get(list_key)
+    if not isinstance(items, list):
+        return None
+    for item in items:
+        if not isinstance(item, Mapping):
+            continue
+        title = item.get("title")
+        if isinstance(title, str) and predicate(title.strip()):
+            return _whole_krw(item.get("amount"))
+    return None
+
+
+def _food_waste(detail: Mapping[str, Any]) -> tuple[int | None, int | None]:
+    """Return the billed food waste fee and its comparable average.
+
+    The app API's trashComparison reports 0 for complexes that bill food waste
+    as a flat line item, so the bill line is preferred when it exists.
+    """
+    trash = detail.get("trashComparison")
+    if not isinstance(trash, Mapping):
+        trash = {}
+    compared = _whole_krw(trash.get("amount"))
+    average = _whole_krw(trash.get("averageAmount"))
+    billed = _list_item_amount(detail, "etcList", lambda t: t in _FOOD_WASTE_TITLES)
+    if billed is None:
+        return compared, average
+    if compared != billed:
+        average = None
+    return billed, average
+
+
+def _water_amount(detail: Mapping[str, Any]) -> int | None:
+    """Return the water charge on the app's basis (household + sewer).
+
+    The app API includes sewer charges in waterComparison.amount, while the
+    website parser reports only the household line. Add sewer for the latter
+    so the monthly series stays comparable with the same-area average.
+    """
+    water = detail.get("waterComparison")
+    amount = _whole_krw(water.get("amount")) if isinstance(water, Mapping) else None
+    household = _list_item_amount(detail, "waterList", lambda t: t.startswith("세대"))
+    sewer = _list_item_amount(detail, "waterList", lambda t: t.startswith("하수도"))
+    if amount is not None and household is not None and sewer and amount == household:
+        return amount + sewer
+    return amount
+
+
 def _monthly_details(data: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Build compact chart-ready records from monthly detailed bills."""
     records: list[dict[str, Any]] = []
@@ -118,9 +172,7 @@ def _monthly_details(data: Mapping[str, Any]) -> list[dict[str, Any]]:
         water = detail.get("waterComparison")
         if not isinstance(water, Mapping):
             water = {}
-        trash = detail.get("trashComparison")
-        if not isinstance(trash, Mapping):
-            trash = {}
+        food_waste_amount, food_waste_average_amount = _food_waste(detail)
 
         records.append(
             {
@@ -134,13 +186,11 @@ def _monthly_details(data: Mapping[str, Any]) -> list[dict[str, Any]]:
                     electricity.get("averageAmount")
                 ),
                 "water_usage": _number(water.get("usage")),
-                "water_amount": _whole_krw(water.get("amount")),
+                "water_amount": _water_amount(detail),
                 "water_average_usage": _number(water.get("averageUsage")),
                 "water_average_amount": _whole_krw(water.get("averageAmount")),
-                "food_waste_amount": _whole_krw(trash.get("amount")),
-                "food_waste_average_amount": _whole_krw(
-                    trash.get("averageAmount")
-                ),
+                "food_waste_amount": food_waste_amount,
+                "food_waste_average_amount": food_waste_average_amount,
                 "discount_items": detail.get("discountList", []),
                 "electricity_items": detail.get("electricityList", []),
                 "water_items": detail.get("waterList", []),
@@ -280,7 +330,7 @@ SENSOR_DESCRIPTIONS: tuple[AptreeSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_KRW,
         suggested_display_precision=0,
-        value_fn=lambda data: _whole_krw(_nested(data, "waterComparison", "amount")),
+        value_fn=_water_amount,
     ),
     AptreeSensorEntityDescription(
         key="water_average_usage",
@@ -307,7 +357,7 @@ SENSOR_DESCRIPTIONS: tuple[AptreeSensorEntityDescription, ...] = (
         device_class=SensorDeviceClass.MONETARY,
         native_unit_of_measurement=CURRENCY_KRW,
         suggested_display_precision=0,
-        value_fn=lambda data: _whole_krw(_nested(data, "trashComparison", "amount")),
+        value_fn=lambda data: _food_waste(data)[0],
     ),
 )
 
