@@ -23,6 +23,7 @@ from .const import (
     API_BASE_URL,
     API_REQUEST_TIMEOUT,
     API_WEB_WORKER_TIMEOUT,
+    ARCHIVE_MAX_MONTHS,
     DEFAULT_COMMUNITY_ID,
 )
 
@@ -116,6 +117,8 @@ class AptreeApiClient:
         self._refresh_token_expires_at = 0.0
         self._token_type = "Bearer"
         self._auth_lock = asyncio.Lock()
+        self._archive_exhausted = False
+        self._average_attempted: set[str] = set()
 
     async def async_validate_credentials(self) -> None:
         """Validate credentials without fetching private billing data."""
@@ -171,6 +174,124 @@ class AptreeApiClient:
             month not in cached_by_month for month in months
         )
         return latest, remaining
+
+    async def async_extend_history(
+        self, details: list[dict[str, Any]]
+    ) -> tuple[list[dict[str, Any]], bool]:
+        """Add one older month and complete one month's averages.
+
+        Best effort: every failure only ends the attempt until the next start.
+        """
+        cached = {
+            self._normalize_billing_month(str(detail["billingMonth"])): copy.deepcopy(
+                detail
+            )
+            for detail in details
+            if detail.get("billingMonth")
+        }
+        if not cached:
+            return details, False
+        pending = await self._async_fill_averages(cached, max(cached))
+        if not self._archive_exhausted:
+            oldest = min(cached)
+            if len(cached) >= ARCHIVE_MAX_MONTHS or self._run_sync is None:
+                self._archive_exhausted = True
+            else:
+                month = self._previous_month(oldest)
+                try:
+                    detail = await self._run_sync(
+                        _fetch_web_bill_sync,
+                        self._username,
+                        self._password,
+                        self._community_id,
+                        month,
+                    )
+                except AptreeApiError as err:
+                    self._archive_exhausted = True
+                    _LOGGER.info("APTREE history before %s unavailable (%s)", oldest, err)
+                else:
+                    if self._is_end_of_history(detail, cached[oldest]):
+                        self._archive_exhausted = True
+                    else:
+                        cached[month] = detail
+        return (
+            [cached[month] for month in sorted(cached)],
+            pending or not self._archive_exhausted,
+        )
+
+    @staticmethod
+    def _previous_month(month: str) -> str:
+        index = int(month[:4]) * 12 + int(month[4:6]) - 2
+        return f"{index // 12:04d}{index % 12 + 1:02d}"
+
+    @staticmethod
+    def _is_end_of_history(
+        detail: Mapping[str, Any], newer: Mapping[str, Any]
+    ) -> bool:
+        """Detect empty months and pages that repeat a bill already archived."""
+        total = detail.get("totalAmount")
+        amount = total.get("amount") if isinstance(total, Mapping) else None
+        return not amount or all(
+            detail.get(key) == newer.get(key) for key in ("totalAmount", "etcList")
+        )
+
+    async def _async_fill_averages(
+        self, cached: dict[str, dict[str, Any]], latest_month: str
+    ) -> bool:
+        """Ask the app API once for one month that lacks same-area averages.
+
+        Only a response for the very same bill is accepted, so an API that
+        ignores the requested month can never mislabel another month's data.
+        """
+        candidates = [
+            month
+            for month in sorted(cached, reverse=True)
+            if month != latest_month
+            and month not in self._average_attempted
+            and not self._has_average(cached[month])
+        ]
+        if not candidates:
+            return False
+        month = candidates[0]
+        self._average_attempted.add(month)
+        try:
+            detail = await self.async_get_bill_detail(month)
+        except AptreeApiError as err:
+            _LOGGER.info(
+                "APTREE app API has no detail for %s (%s)", month, type(err).__name__
+            )
+            return len(candidates) > 1
+        if self._has_average(detail) and self._same_bill(
+            detail, cached[month], month
+        ):
+            cached[month] = detail
+        else:
+            _LOGGER.info("APTREE app API has no usable averages for %s", month)
+        return len(candidates) > 1
+
+    @staticmethod
+    def _has_average(detail: Mapping[str, Any]) -> bool:
+        comparison = detail.get("electricityComparison")
+        return isinstance(comparison, Mapping) and bool(comparison.get("averageUsage"))
+
+    @classmethod
+    def _same_bill(
+        cls, detail: Mapping[str, Any], cached: Mapping[str, Any], month: str
+    ) -> bool:
+        target = detail.get("targetMonth") or detail.get("billingMonth")
+        try:
+            if cls._normalize_billing_month(str(target)) != month:
+                return False
+        except AptreeResponseError:
+            return False
+        amounts = [
+            value.get("amount") if isinstance(value, Mapping) else None
+            for value in (detail.get("totalAmount"), cached.get("totalAmount"))
+        ]
+        try:
+            return float(amounts[0]) == float(amounts[1])
+        except (TypeError, ValueError):
+            return False
 
     async def async_get_bill_detail(self, billing_month: str) -> dict[str, Any]:
         """Return one month of detailed billing data."""
@@ -371,7 +492,7 @@ class AptreeApiClient:
         """Return headers expected by the resident API."""
         return {
             "Accept": "application/json",
-            "User-Agent": "HomeAssistant-HA-aptree/0.8.0",
+            "User-Agent": "HomeAssistant-HA-aptree/0.9.0",
             "X-App-Platform": API_APP_PLATFORM,
             "X-App-Version": API_APP_VERSION,
             "X-App-Build": API_APP_BUILD,

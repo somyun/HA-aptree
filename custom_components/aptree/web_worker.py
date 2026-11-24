@@ -18,7 +18,7 @@ def _request(opener, method: str, url: str, data: dict[str, str]) -> str:
     request = Request(
         url,
         data=urlencode(data).encode(),
-        headers={"User-Agent": "HomeAssistant-HA-aptree/0.8.0"},
+        headers={"User-Agent": "HomeAssistant-HA-aptree/0.9.0"},
         method=method,
     )
     with opener.open(request, timeout=REQUEST_TIMEOUT) as response:

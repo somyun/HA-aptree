@@ -16,20 +16,27 @@ from homeassistant.const import (
 )
 from homeassistant.core import CoreState, Event, HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.typing import ConfigType
 
 from .api import AptreeApiClient
+from .archive import BillArchive
 from .const import (
     BACKFILL_MAX_STEPS,
     BACKFILL_START_DELAY,
     BACKFILL_STEP_DELAY,
+    CONF_BUILDING,
     CONF_COMMUNITY_ID,
+    CONF_UNIT,
     DEFAULT_COMMUNITY_ID,
+    DOMAIN,
     STORAGE_KEY_PREFIX,
     STORAGE_VERSION,
 )
 from .coordinator import AptreeDataUpdateCoordinator
 
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
 PLATFORMS = [Platform.SELECT, Platform.SENSOR]
 
 
@@ -39,6 +46,15 @@ class AptreeRuntimeData:
 
     api: AptreeApiClient
     coordinator: AptreeDataUpdateCoordinator
+    archive: BillArchive
+
+
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
+    """Register the dashboard card and bill endpoints."""
+    from .views import async_register  # avoids an import cycle with sensor
+
+    await async_register(hass)
+    return True
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
@@ -54,12 +70,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         community_id,
         hass.async_add_executor_job,
     )
-    coordinator = AptreeDataUpdateCoordinator(hass, entry, api, cache_scope)
+    archive = BillArchive(
+        hass,
+        async_get_clientsession(hass),
+        entry.entry_id,
+        community_id,
+        entry.data.get(CONF_BUILDING, ""),
+        entry.data.get(CONF_UNIT, ""),
+    )
+    await archive.async_load()
+    coordinator = AptreeDataUpdateCoordinator(hass, entry, api, cache_scope, archive)
     # Restore persisted data immediately. The potentially slow first backfill
     # must never block Home Assistant startup.
     await coordinator.async_initialize_from_storage()
 
-    entry.runtime_data = AptreeRuntimeData(api=api, coordinator=coordinator)
+    entry.runtime_data = AptreeRuntimeData(
+        api=api, coordinator=coordinator, archive=archive
+    )
     entry.async_on_unload(entry.add_update_listener(_async_reload_entry))
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 

@@ -5,12 +5,24 @@
       "user": {
         "title": "Connect APTREE",
         "description": "Enter the resident account used on the APTREE website. The community number is the number in /home/user/6745/ of your APTREE URL.",
-        "data": {"community_id": "Community number", "username": "APTREE ID", "password": "Password"}
+        "data": {
+          "community_id": "Community number",
+          "username": "APTREE ID",
+          "password": "Password",
+          "building": "Building (optional, for PDF bills)",
+          "unit": "Unit (optional, for PDF bills)"
+        }
       },
       "reauth_confirm": {
         "title": "Reconnect APTREE",
         "description": "Your saved credentials were rejected. Enter valid APTREE credentials.",
-        "data": {"community_id": "Community number", "username": "APTREE ID", "password": "Password"}
+        "data": {
+          "community_id": "Community number",
+          "username": "APTREE ID",
+          "password": "Password",
+          "building": "Building (optional, for PDF bills)",
+          "unit": "Unit (optional, for PDF bills)"
+        }
       }
     },
     "error": {
@@ -30,7 +42,13 @@
       "init": {
         "title": "Change APTREE credentials",
         "description": "Leave the password empty to keep the current password.",
-        "data": {"community_id": "Community number", "username": "APTREE ID", "password": "New password"}
+        "data": {
+          "community_id": "Community number",
+          "username": "APTREE ID",
+          "password": "New password",
+          "building": "Building (optional, for PDF bills)",
+          "unit": "Unit (optional, for PDF bills)"
+        }
       }
     },
     "error": {
@@ -42,27 +60,65 @@
   },
   "entity": {
     "select": {
-      "billing_month": {"name": "Billing month"}
+      "billing_month": {
+        "name": "Billing month"
+      }
     },
     "sensor": {
-      "total_amount": {"name": "1. Amount · Total management fee"},
-      "due_date": {"name": "3. Other · Due date"},
-      "unpaid_amount": {"name": "1. Amount · Unpaid amount"},
-      "overdue_amount": {"name": "1. Amount · Overdue amount"},
-      "same_area_average": {"name": "1. Amount · Same-area average"},
-      "same_area_minimum": {"name": "1. Amount · Same-area minimum"},
-      "same_area_maximum": {"name": "1. Amount · Same-area maximum"},
-      "electricity_usage": {"name": "2. Usage · Electricity"},
-      "electricity_amount": {"name": "1. Amount · Electricity charge"},
-      "electricity_average_usage": {"name": "2. Usage · Electricity peer average"},
-      "electricity_average_amount": {"name": "1. Amount · Electricity peer-average charge"},
-      "water_usage": {"name": "2. Usage · Water"},
-      "water_amount": {"name": "1. Amount · Water charge"},
-      "water_average_usage": {"name": "2. Usage · Water peer average"},
-      "water_average_amount": {"name": "1. Amount · Water peer-average charge"},
-      "trash_amount": {"name": "1. Amount · Food-waste charge"},
-      "bill_details": {"name": "3. Other · Bill details"},
-      "yearly_history": {"name": "1. Amount · 12-month history"}
+      "total_amount": {
+        "name": "1. Amount · Total management fee"
+      },
+      "due_date": {
+        "name": "3. Other · Due date"
+      },
+      "unpaid_amount": {
+        "name": "1. Amount · Unpaid amount"
+      },
+      "overdue_amount": {
+        "name": "1. Amount · Overdue amount"
+      },
+      "same_area_average": {
+        "name": "1. Amount · Same-area average"
+      },
+      "same_area_minimum": {
+        "name": "1. Amount · Same-area minimum"
+      },
+      "same_area_maximum": {
+        "name": "1. Amount · Same-area maximum"
+      },
+      "electricity_usage": {
+        "name": "2. Usage · Electricity"
+      },
+      "electricity_amount": {
+        "name": "1. Amount · Electricity charge"
+      },
+      "electricity_average_usage": {
+        "name": "2. Usage · Electricity peer average"
+      },
+      "electricity_average_amount": {
+        "name": "1. Amount · Electricity peer-average charge"
+      },
+      "water_usage": {
+        "name": "2. Usage · Water"
+      },
+      "water_amount": {
+        "name": "1. Amount · Water charge"
+      },
+      "water_average_usage": {
+        "name": "2. Usage · Water peer average"
+      },
+      "water_average_amount": {
+        "name": "1. Amount · Water peer-average charge"
+      },
+      "trash_amount": {
+        "name": "1. Amount · Food-waste charge"
+      },
+      "bill_details": {
+        "name": "3. Other · Bill details"
+      },
+      "yearly_history": {
+        "name": "1. Amount · 12-month history"
+      }
     }
   }
 }

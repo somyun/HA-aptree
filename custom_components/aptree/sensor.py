@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
@@ -145,6 +146,52 @@ def _water_amount(detail: Mapping[str, Any]) -> int | None:
     return amount
 
 
+def monthly_records(
+    data: Mapping[str, Any], pdfs: Mapping[str, Mapping[str, Any]]
+) -> list[dict[str, Any]]:
+    """Return every archived month, completed with values from its PDF bill."""
+    records = _monthly_details(data)
+    for record in records:
+        month = record["month"][:7]
+        record["has_pdf"] = month in pdfs
+        pdf = pdfs.get(month) or {}
+        if not pdf or pdf.get("total") != record["total"]:
+            continue
+        for key, source in (
+            ("same_area_average", "sameAreaAverage"),
+            ("same_area_min", "sameAreaMin"),
+            ("same_area_max", "sameAreaMax"),
+        ):
+            if not record.get(key):
+                record[key] = pdf.get(source)
+        for kind in ("electricity", "water", "heating"):
+            comparison = pdf.get(kind) or {}
+            for key, source in (
+                (f"{kind}_average_usage", "averageUsage"),
+                (f"{kind}_average_amount", "averageAmount"),
+            ):
+                if not record.get(key):
+                    record[key] = comparison.get(source)
+        for key in ("readings", "climate_fee", "fuel_adjustment"):
+            if key in pdf:
+                record[key] = pdf[key]
+    return records
+
+
+def _titled_usage(
+    detail: Mapping[str, Any], list_key: str, prefix: str
+) -> int | float | None:
+    """Read the usage printed inside a line title such as ``급탕 2 t``."""
+    for item in detail.get(list_key) or []:
+        if not isinstance(item, Mapping):
+            continue
+        title = str(item.get("title", "")).replace(" ", "")
+        match = re.fullmatch(rf"{prefix}\(?([\d.,]*)(?:t|M)\)?", title, re.I)
+        if match:
+            return _number(match.group(1)) if match.group(1) else 0
+    return None
+
+
 def _monthly_details(data: Mapping[str, Any]) -> list[dict[str, Any]]:
     """Build compact chart-ready records from monthly detailed bills."""
     records: list[dict[str, Any]] = []
@@ -179,6 +226,18 @@ def _monthly_details(data: Mapping[str, Any]) -> list[dict[str, Any]]:
                 "month": month,
                 "total": _amount(detail, "totalAmount"),
                 "categories": categories,
+                "same_area_average": _whole_krw(detail.get("sameAreaAverage")),
+                "same_area_min": _whole_krw(detail.get("sameAreaMin")),
+                "same_area_max": _whole_krw(detail.get("sameAreaMax")),
+                "due_date": detail.get("dueDate"),
+                "hot_water_usage": _titled_usage(detail, "waterList", "급탕"),
+                "heating_usage": _titled_usage(detail, "etcList", "난방")
+                # Bills omit the metered heating line in months without use.
+                or (0 if detail.get("etcList") else None),
+                "heating_amount": _list_item_amount(
+                    detail, "etcList", lambda t: re.match(r"난방[\s\d.(]*M", t) is not None
+                )
+                or (0 if detail.get("etcList") else None),
                 "electricity_usage": _number(electricity.get("usage")),
                 "electricity_amount": _whole_krw(electricity.get("amount")),
                 "electricity_average_usage": _number(electricity.get("averageUsage")),
@@ -475,6 +534,7 @@ class AptreeYearlyHistorySensor(AptreeBaseSensor):
 
     _attr_translation_key = "yearly_history"
     _attr_icon = "mdi:chart-line"
+    _unrecorded_attributes = frozenset({ATTR_HISTORY, ATTR_MONTHLY_DETAILS})
     _attr_device_class = SensorDeviceClass.MONETARY
     _attr_native_unit_of_measurement = CURRENCY_KRW
     _attr_suggested_display_precision = 0

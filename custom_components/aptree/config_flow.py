@@ -26,7 +26,13 @@ from .api import (
     AptreeAuthenticationError,
     AptreeConnectionError,
 )
-from .const import CONF_COMMUNITY_ID, DEFAULT_COMMUNITY_ID, DOMAIN
+from .const import (
+    CONF_BUILDING,
+    CONF_COMMUNITY_ID,
+    CONF_UNIT,
+    DEFAULT_COMMUNITY_ID,
+    DOMAIN,
+)
 
 
 def _credentials_schema(
@@ -34,6 +40,8 @@ def _credentials_schema(
     *,
     password_required: bool = True,
     community_id: str = DEFAULT_COMMUNITY_ID,
+    building: str = "",
+    unit: str = "",
 ) -> vol.Schema:
     """Build a browser-autofill-friendly credential schema."""
     username_key = vol.Required(CONF_USERNAME, default=username or "")
@@ -60,8 +68,22 @@ def _credentials_schema(
                     autocomplete="current-password",
                 )
             ),
+            vol.Optional(CONF_BUILDING, default=building): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.TEXT)
+            ),
+            vol.Optional(CONF_UNIT, default=unit): TextSelector(
+                TextSelectorConfig(type=TextSelectorType.TEXT)
+            ),
         }
     )
+
+
+def _household(user_input: dict[str, Any]) -> dict[str, str]:
+    """Return the optional household used to fetch original bills."""
+    return {
+        key: "".join(c for c in str(user_input.get(key, "")) if c.isalnum())
+        for key in (CONF_BUILDING, CONF_UNIT)
+    }
 
 
 async def _async_validate_credentials(
@@ -105,6 +127,7 @@ class AptreeConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_USERNAME: username,
                         CONF_PASSWORD: password,
                         CONF_COMMUNITY_ID: community_id,
+                        **_household(user_input),
                     },
                 )
 
@@ -151,6 +174,7 @@ class AptreeConfigFlow(ConfigFlow, domain=DOMAIN):
                         CONF_USERNAME: username,
                         CONF_PASSWORD: password,
                         CONF_COMMUNITY_ID: community_id,
+                        **_household(user_input),
                     },
                     title=f"APTREE ({username})",
                     unique_id=username.casefold(),
@@ -162,6 +186,8 @@ class AptreeConfigFlow(ConfigFlow, domain=DOMAIN):
             data_schema=_credentials_schema(
                 entry.data[CONF_USERNAME],
                 community_id=entry.data.get(CONF_COMMUNITY_ID, DEFAULT_COMMUNITY_ID),
+                building=entry.data.get(CONF_BUILDING, ""),
+                unit=entry.data.get(CONF_UNIT, ""),
             ),
             errors=errors,
         )
@@ -215,6 +241,7 @@ class AptreeOptionsFlow(OptionsFlow):
                             CONF_USERNAME: username,
                             CONF_PASSWORD: password,
                             CONF_COMMUNITY_ID: community_id,
+                            **_household(user_input),
                         },
                         title=f"APTREE ({username})",
                         unique_id=username.casefold(),
@@ -229,6 +256,8 @@ class AptreeOptionsFlow(OptionsFlow):
                 community_id=self._entry.data.get(
                     CONF_COMMUNITY_ID, DEFAULT_COMMUNITY_ID
                 ),
+                building=self._entry.data.get(CONF_BUILDING, ""),
+                unit=self._entry.data.get(CONF_UNIT, ""),
             ),
             errors=errors,
         )
