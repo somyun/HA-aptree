@@ -61,7 +61,8 @@
 
   /* ------------------------------------------------------------ charts */
   function chart({ months, series, unit, selected, values = true, height = 250 }) {
-    const W = 640, H = height, L = 62, R = 10, T = 22, B = 40;
+    const narrow = window.innerWidth < 500;
+    const W = 640, H = height, L = narrow ? 82 : 62, R = 10, T = 22, B = 40;
     const all = series.flatMap((s) => s.data.filter((v) => v != null));
     if (!all.length || Math.max(...all) <= 0) return '<div class="empty">표시할 자료가 없습니다.</div>';
     const axis = niceAxis(Math.max(...all));
@@ -69,7 +70,7 @@
     const y = (v) => T + ih * (1 - Math.max(0, v) / axis.max);
     const slot = iw / months.length;
     const x = (i) => L + slot * (i + 0.5);
-    let g = "";
+    let g = "", labels = "";
     const ticks = Math.round(axis.max / axis.step);
     for (let i = 0; i <= ticks; i++) {
       const v = i * axis.step;
@@ -92,8 +93,8 @@
         const bx = x(i) - (bw * bars.length) / 2 + b * bw;
         const on = months[i] === selected;
         g += `<rect x="${bx + 1}" y="${y(v)}" width="${bw - 2}" height="${T + ih - y(v)}" rx="2" fill="${s.color}" opacity="${on || !selected ? 1 : 0.62}"/>`;
-        if (values && bars.length === 1)
-          g += `<text class="val${on ? " on" : ""}" x="${x(i)}" y="${y(v) - 5}" text-anchor="middle">${num(v)}</text>`;
+        if (values && bars.length === 1 && (!narrow || on || axis.max < 1000))
+          labels += `<text class="val${on ? " on" : ""}" x="${x(i)}" y="${y(v) - 5}" text-anchor="middle">${num(v)}</text>`;
       })
     );
     series.filter((s) => s.type === "line").forEach((s) => {
@@ -108,6 +109,7 @@
         if (v != null) g += `<circle cx="${x(i)}" cy="${y(v)}" r="4" fill="${s.color}" class="dot"/>`;
       });
     });
+    g += labels;
     months.forEach((m, i) => {
       const tip = [label(m), ...series.map((s) => `${s.name}: ${num(s.data[i])}${s.data[i] == null ? "" : " " + unit}`)].join("\n");
       g += `<rect class="hit" data-month="${m}" x="${L + slot * i}" y="${T}" width="${slot}" height="${ih + B}"><title>${esc(tip)}</title></rect>`;
@@ -163,7 +165,7 @@
   svg{width:100%;height:auto;display:block}
   .grid{stroke:var(--divider-color);stroke-width:1}
   text{fill:var(--secondary-text-color);font-size:12px}
-  text.val{font-size:10.5px} text.year,text.unit{font-size:11px}
+  text.val{font-size:10.5px;paint-order:stroke;stroke:var(--ha-card-background,var(--card-background-color));stroke-width:3px} text.year,text.unit{font-size:11px}
   text.on{fill:var(--primary-text-color);font-weight:700}
   .dot{stroke:var(--card-background-color);stroke-width:1.5}
   .hit{fill:transparent;cursor:pointer} .hit:hover{fill:rgba(127,127,127,.12)}
