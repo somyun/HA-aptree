@@ -62,6 +62,7 @@
   /* ------------------------------------------------------------ charts */
   function chart({ months, series, unit, selected, values = true, height = 250 }) {
     const narrow = window.innerWidth < 500;
+    const bars0 = series.filter((s) => s.type !== "line").length;
     const W = 640, H = height, L = narrow ? 82 : 62, R = 10, T = 22, B = 40;
     const all = series.flatMap((s) => s.data.filter((v) => v != null));
     if (!all.length || Math.max(...all) <= 0) return '<div class="empty">표시할 자료가 없습니다.</div>';
@@ -86,15 +87,15 @@
         g += `<text class="year" x="${x(i)}" y="${H - B + 32}" text-anchor="middle">${m.slice(0, 4)}</text>`;
     });
     const bars = series.filter((s) => s.type !== "line");
-    const bw = Math.min(34, (slot * 0.68) / Math.max(1, bars.length));
+    const bw = Math.min(34, (slot * (bars0 > 1 ? 0.84 : 0.68)) / Math.max(1, bars.length));
     bars.forEach((s, b) =>
       s.data.forEach((v, i) => {
         if (v == null) return;
         const bx = x(i) - (bw * bars.length) / 2 + b * bw;
         const on = months[i] === selected;
-        g += `<rect x="${bx + 1}" y="${y(v)}" width="${bw - 2}" height="${T + ih - y(v)}" rx="2" fill="${s.color}" opacity="${on || !selected ? 1 : 0.62}"/>`;
-        if (values && bars.length === 1 && (!narrow || on || axis.max < 1000))
-          labels += `<text class="val${on ? " on" : ""}" x="${x(i)}" y="${y(v) - 5}" text-anchor="middle">${num(v)}</text>`;
+        g += `<rect x="${bx + 1}" y="${y(v)}" width="${bw - 2}" height="${T + ih - y(v)}" rx="2" fill="${s.color}" opacity="${on || !selected || s.past ? 1 : 0.62}"/>`;
+        if (values && !s.past && (!narrow || on || axis.max < 1000))
+          labels += `<text class="val${on ? " on" : ""}" x="${bx + bw / 2}" y="${y(v) - 5}" text-anchor="middle">${num(v)}</text>`;
       })
     );
     series.filter((s) => s.type === "line").forEach((s) => {
@@ -243,7 +244,8 @@
       const months = this._range();
       return chart({
         months, unit, selected: this._month, ...opts,
-        series: defs.map((d) => ({ ...d, data: months.map((m) => { const r = this._row(m); return r ? (r[d.field] ?? null) : null; }) }))
+        series: defs.flatMap((d) => (d.type === "line" ? [d] : [{ ...d, name: "전년 동월", color: "#9aa5b1", past: true, back: 12 }, { ...d, name: "우리 집" }]))
+          .map((d) => ({ ...d, data: months.map((m) => { const r = this._row(shiftMonth(m, -(d.back || 0))); return r ? (r[d.field] ?? null) : null; }) }))
           .filter((s) => s.data.some((v) => v != null)),
       });
     }

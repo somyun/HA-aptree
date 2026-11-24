@@ -24,19 +24,26 @@ DEFAULT_UPDATE_INTERVAL = timedelta(hours=24)
 STORAGE_VERSION = 1
 STORAGE_KEY_PREFIX = "aptree.billing_history"
 
-INTEGRATION_VERSION = "0.9.0"
+INTEGRATION_VERSION = "0.9.1"
 CONF_BUILDING = "building"
 CONF_UNIT = "unit"
 CARD_URL = "/aptree_static/aptree-fees-card.js"
 PUBLIC_MONTHS = 13
 ARCHIVE_MAX_MONTHS = 60
 
-PDF_URL = "https://vpms.vnrisa.com:8443/VPMS/pdf.do"
+# Prepares the requested month and redirects to the PDF. Requesting the PDF
+# directly only works for months that were prepared before.
+PDF_URL = "https://pdf2.vnrisa.com/HP_Bill_Api.aspx"
+PDF_HOST_SUFFIX = ".vnrisa.com"
 PDF_DIRECTORY = "aptree_bills"
-PDF_LOOKBACK_MONTHS = 3
+# The server renders each PDF on demand, which can take about a minute.
+PDF_ATTEMPTS = 2
+PDF_RETRY_DELAY = 20
+PDF_REQUEST_GAP = 5
+PDF_MAX_FAILURES = 3
 PDF_MAX_BYTES = 10 * 1024 * 1024
 PDF_RETRY_INTERVAL = 20 * 60 * 60
-PDF_TIMEOUT = 60
+PDF_TIMEOUT = 180
 
 ATTR_BILLING_MONTH = "billing_month"
 ATTR_HISTORY = "history"

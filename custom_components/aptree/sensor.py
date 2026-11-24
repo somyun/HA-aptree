@@ -556,4 +556,6 @@ class AptreeYearlyHistorySensor(AptreeBaseSensor):
         attributes = super().extra_state_attributes
         attributes[ATTR_HISTORY] = self.coordinator.data.get("yearlyAmountList", [])
         attributes[ATTR_MONTHLY_DETAILS] = _monthly_details(self.coordinator.data)
+        # A changed attribute also tells the dashboard card to reload.
+        attributes["pdf_months"] = self.coordinator.archive.months
         return attributes

@@ -114,8 +114,7 @@ class AptreeDataUpdateCoordinator(DataUpdateCoordinator[dict[str, Any]]):
             for detail in data.get("monthlyBillDetails", [])
             if isinstance(detail, Mapping) and detail.get("targetMonth")
         ]
-        if await self.archive.async_update(months):
-            self.async_update_listeners()
+        await self.archive.async_update(months, self.async_update_listeners)
 
     def _schedule_archive_update(self, data: dict[str, Any]) -> None:
         self.config_entry.async_create_background_task(

@@ -77,6 +77,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         community_id,
         entry.data.get(CONF_BUILDING, ""),
         entry.data.get(CONF_UNIT, ""),
+        api.async_get_customer_code,
     )
     await archive.async_load()
     coordinator = AptreeDataUpdateCoordinator(hass, entry, api, cache_scope, archive)

@@ -31,9 +31,13 @@ _LOGGER = logging.getLogger(__name__)
 
 
 def _fetch_web_bill_sync(
-    username: str, password: str, community_id: str, month: str
+    username: str,
+    password: str,
+    community_id: str,
+    month: str,
+    customer_code: bool = False,
 ) -> dict[str, Any]:
-    """Fetch and parse one web bill in a killable child process."""
+    """Fetch one web bill, or the bill code, in a killable child process."""
     worker = Path(__file__).with_name("web_worker.py")
     payload = json.dumps(
         {
@@ -41,6 +45,7 @@ def _fetch_web_bill_sync(
             "password": password,
             "community": community_id,
             "month": month,
+            "customer_code": customer_code,
         },
         ensure_ascii=False,
     )
@@ -218,6 +223,25 @@ class AptreeApiClient:
             [cached[month] for month in sorted(cached)],
             pending or not self._archive_exhausted,
         )
+
+    async def async_get_customer_code(self) -> str | None:
+        """Return the household's bill code, which original bills require."""
+        if self._run_sync is None:
+            return None
+        try:
+            result = await self._run_sync(
+                _fetch_web_bill_sync,
+                self._username,
+                self._password,
+                self._community_id,
+                "",
+                True,
+            )
+        except AptreeApiError as err:
+            _LOGGER.info("APTREE bill code unavailable (%s)", type(err).__name__)
+            return None
+        code = str(result.get("customerCode", ""))
+        return code if code.isascii() and code.isdigit() else None
 
     @staticmethod
     def _previous_month(month: str) -> str:
@@ -492,7 +516,7 @@ class AptreeApiClient:
         """Return headers expected by the resident API."""
         return {
             "Accept": "application/json",
-            "User-Agent": "HomeAssistant-HA-aptree/0.9.0",
+            "User-Agent": "HomeAssistant-HA-aptree/0.9.1",
             "X-App-Platform": API_APP_PLATFORM,
             "X-App-Version": API_APP_VERSION,
             "X-App-Build": API_APP_BUILD,

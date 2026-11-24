@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import sys
 from http.cookiejar import CookieJar
 from urllib.parse import urlencode
@@ -14,11 +15,24 @@ REQUEST_TIMEOUT = 20
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 
 
-def _request(opener, method: str, url: str, data: dict[str, str]) -> str:
+CUSTOMER_PATTERN = re.compile(r"HP_Bill_Api\.aspx\?[^\n]*?pCustCode=(\d{8,24})\b")
+
+
+def find_customer_code(html: str) -> str:
+    """Return the household's bill code from the billing page."""
+    match = CUSTOMER_PATTERN.search(html)
+    if match is None:
+        raise ValueError("customer_code_missing")
+    return match.group(1)
+
+
+def _request(
+    opener, method: str, url: str, data: dict[str, str] | None
+) -> str:
     request = Request(
         url,
-        data=urlencode(data).encode(),
-        headers={"User-Agent": "HomeAssistant-HA-aptree/0.9.0"},
+        data=urlencode(data).encode() if data is not None else None,
+        headers={"User-Agent": "HomeAssistant-HA-aptree/0.9.1"},
         method=method,
     )
     with opener.open(request, timeout=REQUEST_TIMEOUT) as response:
@@ -52,6 +66,10 @@ def main() -> int:
         )
         if login.strip().lower() != "ok":
             raise PermissionError("authentication_failed")
+        if payload.get("customer_code"):
+            page = _request(opener, "GET", f"{base}/cac.php", None)
+            json.dump({"customerCode": find_customer_code(page)}, sys.stdout)
+            return 0
         html = _request(
             opener,
             "POST",

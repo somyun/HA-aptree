@@ -124,3 +124,22 @@ class ExtendHistoryTests(IsolatedAsyncioTestCase):
         self.assertEqual([d["billingMonth"] for d in details], ["202606", "202607"])
         self.assertNotIn("electricityComparison", details[0])
         self.assertFalse(pending)
+
+
+class CustomerCodeTests(TestCase):
+    """The bill code is read from the billing page's own link."""
+
+    def test_find_customer_code(self) -> None:
+        source = (INTEGRATION_DIR / "web_worker.py").read_text(encoding="utf-8")
+        start = source.index("CUSTOMER_PATTERN")
+        end = source.index("def _request(")
+        namespace: dict = {}
+        exec("import re\n" + source[start:end], namespace)  # noqa: S102
+        page = (
+            "//window.open('https://example.com/HP_Bill.aspx?pCustCode=11111111');\n"
+            "window.open('https://pdf2.vnrisa.com/HP_Bill_Api.aspx?pParam=Goji"
+            "&pYyyymm='+x+'&pCustCode=91234010102021&pRecgubun=0');"
+        )
+        self.assertEqual(namespace["find_customer_code"](page), "91234010102021")
+        with self.assertRaises(ValueError):
+            namespace["find_customer_code"]("<html></html>")
